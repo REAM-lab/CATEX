@@ -74,10 +74,11 @@ function stochastic_capex( ; main_dir = pwd(),
     # Fields:
     - bus_id: ID of the bus
     - kv: voltage level of the bus in kilovolts
-    - type: type of the bus (e.g., Substation)
+    - type: type of the bus (e.g., Substation). It could be any string.
     - lat: latitude of the bus location
     - lon: longitude of the bus location
-    - slack: boolean indicating if the bus is a slack bus
+    - slack: boolean (true or false) indicating if the bus is a slack bus. 
+             At least there must be one slack bus in the system.
     """
     struct Bus
         bus_id:: String
@@ -89,9 +90,9 @@ function stochastic_capex( ; main_dir = pwd(),
     end
 
     # Get a list of Bus structures
-    buses = to_Structs(Timepoint, inputs_dir, "buses.csv")
+    buses = to_Structs(Bus, inputs_dir, "buses.csv")
 
-    # Get a list of the timepoint IDs
+    # Get a list of the bus IDs
     N = getfield.(buses, :bus_id)
 
     # Transform buses into NamedArray, so we can access buses by their IDs
@@ -120,6 +121,21 @@ function stochastic_capex( ; main_dir = pwd(),
     load = to_multidim_NamedArray(l, [:bus_id, :sc_id, :t_id], :load)
 
 
+    """
+    Generator represents a generation project or existing generator in the power system.
+
+    # Fields:
+    - gen_id: ID of the generation project
+    - gen_tech: technology type of the generator, for example, "solar", "wind", "gas_cc". It could be any string.
+    - bus_id: ID of the bus where the generator is connected to.
+    - c2: quadratic coefficient of the generation cost function (USD/MW²)
+    - c1: linear coefficient of the generation cost function (USD/MW)
+    - c0: fixed coefficient of the generation cost function (USD)
+    - invest_cost: investment cost per MW of capacity (USD/MW)
+    - exist_cap: pre-existing capacity of the generator (MW)
+    - cap_limit: maximum build capacity of the generator (MW)
+    - var_om_cost: variable operation and maintenance cost (USD/MW)
+    """
     struct Generator
         gen_id:: String
         gen_tech:: String
@@ -132,21 +148,29 @@ function stochastic_capex( ; main_dir = pwd(),
         cap_limit:: Float64
         var_om_cost:: Float64
     end
-    # Generation projects
-    gens_data = CSV.read(joinpath(inputs_dir, "generation_projects_info.csv"), DataFrame, 
-                                types=[String, String, String, Float64, Float64, Float64])
 
-    # Capacity factors
-    cf_data = CSV.read(joinpath(inputs_dir, "variable_capacity_factors.csv"),DataFrame,
-                                types=[String, Int64, String, Float64])
+    # Get a list of instances of generators structures
+    gens = to_Structs(Generator, inputs_dir, "generators.csv")
 
-    cf = to_tupled_Dict(cf_data, 
-                                [:generation_project, :scenario, :timepoint], 
-                                :gen_max_capacity_factor)
+    # Get a list of the generator IDs
+    G = getfield.(gens, :gen_id)
+
+    # Transform gens into NamedArray, so we can access generators by their IDs
+    gens = NamedArray(gens, (G))
+    
+
+    GV_ids = names(cf, 1)
+    GV = G[GV_ids]
+
+    GN_ids = setdiff(G_ids, GV_ids)
+    GN = G[GN_ids]
+
     
     G = gens_data[:, :generation_project]
     GV = unique(cf_data[:, :generation_project])
     GN = setdiff(G, GV)
+
+
 
     GENS_AT_BUS = to_stacked_Dict(gens_data, "bus", "generation_project")
     GV_AT_BUS = Dict(n => intersect(GV,gens) for (n, gens) in GENS_AT_BUS)
