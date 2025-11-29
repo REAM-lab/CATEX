@@ -99,7 +99,7 @@ function stochastic_capex( ; main_dir = pwd(),
     buses = NamedArray(buses, (N))
 
     # Get slack bus
-    slack_bus = buses[ findfirst([n.slack == true for n in B]) ]
+    slack_bus = buses[ findfirst([n.slack == true for n in buses]) ]
 
 
     """
@@ -202,6 +202,10 @@ function stochastic_capex( ; main_dir = pwd(),
     gensn = gens[GN] # get list of instances of generators without capacity factor profiles
 
 
+    GENS_AT_BUS = [ gens[ findall([g.bus_id == n for g in gens]) ] for n in N]
+    for n in N
+        gens[ findall([g.bus_id == n for g in gens]) ]
+    end
 
     GENS_AT_BUS = to_stacked_Dict(gens_data, "bus", "generation_project")
     GV_AT_BUS = Dict(n => intersect(GV,gens) for (n, gens) in GENS_AT_BUS)
