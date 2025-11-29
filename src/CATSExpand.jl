@@ -159,16 +159,47 @@ function stochastic_capex( ; main_dir = pwd(),
     gens = NamedArray(gens, (G))
     
 
-    GV_ids = names(cf, 1)
-    GV = G[GV_ids]
+    """
+    CapacityFactor represents the capacity factor of a generator. 
+    at a specific scenario and timepoint. 
 
-    GN_ids = setdiff(G_ids, GV_ids)
-    GN = G[GN_ids]
+    # Fields:
+    - gen_id: ID of the generation project
+    - tp_id: ID of the timepoint
+    - sc_id: ID of the scenario
+    - capacity_factor: capacity factor (between 0 and 1)
+    """
 
-    
-    G = gens_data[:, :generation_project]
-    GV = unique(cf_data[:, :generation_project])
-    GN = setdiff(G, GV)
+    struct CapacityFactor
+        gen_id:: String
+        tp_id:: String
+        sc_id:: String
+        capacity_factor:: Float64
+    end
+
+    c = to_Structs(CapacityFactor, inputs_dir, "capacity_factors.csv")
+    cf = to_multidim_NamedArray(c, [:gen_id, :tp_id, :sc_id], :capacity_factor)
+
+
+    """
+    - GV is a list of generator IDs that has capacity factor profile.
+    - gensv is a list of instances of generators with capacity factor profiles.
+        Power generation and capacity of these generators are considered random variables 
+        in the second-stage of the stochastic problem.
+    """
+
+    GV = names(cf, 1) # get IDs of generators with capacity factor profiles
+    gensv = gens[GV] # get list of instances of generators with capacity factor profiles
+
+    """
+    - GN is a list generator IDs that does not have capacity factor profile.
+    - gensn is a list of instances of generators without capacity factor profiles.
+      The power generation and capacity are considered as part of 
+      first-stage of the stochastic problem.
+    """
+
+    GN = setdiff(G, GV) # get IDs of generators using set difference.
+    gensn = gens[GN] # get list of instances of generators without capacity factor profiles
 
 
 
@@ -176,29 +207,7 @@ function stochastic_capex( ; main_dir = pwd(),
     GV_AT_BUS = Dict(n => intersect(GV,gens) for (n, gens) in GENS_AT_BUS)
     GN_AT_BUS = Dict(n => intersect(GN,gens) for (n, gens) in GENS_AT_BUS)
 
-    gen_variable_om= to_Dict(gens_data, :generation_project, :gen_variable_om)
-    gen_capacity_limit= to_Dict(gens_data, :generation_project, :gen_capacity_limit)
-    gen_min_build_capacity =  to_Dict(gens_data, :generation_project, :gen_min_build_capacity)
-
-    # Build generation costs
-    build_costs_data = CSV.read(joinpath(inputs_dir, "gen_build_costs.csv"),DataFrame,
-                                types=[String, Float64])
-
-    gens_build_costs = leftjoin(gens_data, build_costs_data, on = :gen_tech)
-
-    gen_inv_cost = to_Dict(gens_build_costs, :generation_project, :investment_cost)
- 
     
-    # Pre-existing generation projects
-    pregens_data = CSV.read(joinpath(inputs_dir, "gen_build_predetermined.csv"),DataFrame,
-                            types=[String, Float64])
-
-    PREGENS = pregens_data[:, :generation_project]
-
-    PREGN = intersect(PREGENS, GN)
-    PREGV = intersect(PREGENS, GV)
-    
-    precap = to_Dict(pregens_data, :generation_project, :gen_predetermined_cap)
 
     # Transmission lines
     trans_line_data = CSV.read(joinpath(inputs_dir, "transmission_lines.csv"),DataFrame;
