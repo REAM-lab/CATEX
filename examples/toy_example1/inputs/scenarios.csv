@@ -1,3 +1,3 @@
-﻿sc_id,name,prob
-1,low,0.6
-2,high,0.4
+﻿sc_id,prob
+low,0.6
+high,0.4
