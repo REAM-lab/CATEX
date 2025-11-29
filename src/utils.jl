@@ -21,6 +21,13 @@ function to_Structs(structure::DataType, inputs_dir:: String, filename:: String)
     return V
 end
 
+
+"""
+Rehashing and Resizing: When a Dict grows beyond its current allocated capacity, 
+it needs to be resized, which often involves rehashing all existing key-value pairs 
+and moving them to a larger memory location. This process can be computationally expensive, 
+especially with a large number of elements
+"""
 function to_stacked_Dict(data:: DataFrame, key:: String, value:: String)
     col_key = data[!, Symbol(key)]
     col_value = data[!, Symbol(value)]
