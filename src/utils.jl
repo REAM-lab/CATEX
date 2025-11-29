@@ -21,6 +21,19 @@ function to_Structs(structure::DataType, inputs_dir:: String, filename:: String)
     return V
 end
 
+function to_multidim_NamedArray(structures:: Vector{T}, dims:: Vector{Symbol}, value:: Symbol):: NamedArray{Union{Missing, Float64}} where {T} 
+  
+    vals_in_dim = [unique(getfield.(structures, d)) for (i, d) in enumerate(dims)]
+    
+    arr = Array{Union{Missing, Float64}}(missing, length.(vals_in_dim)...)
+    arr = NamedArray(arr, vals_in_dim, dims)
+
+    for s in structures
+        arr[getfield.(Ref(s), dims)...] = getfield(s, value)
+    end
+
+    return arr
+end
 
 """
 Rehashing and Resizing: When a Dict grows beyond its current allocated capacity, 

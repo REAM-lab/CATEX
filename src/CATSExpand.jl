@@ -1,7 +1,7 @@
 module CATSExpand
 
 # Import Julia packages
-using CSV, DataFrames, DataStructures, Tables, JuMP, MosekTools
+using CSV, DataFrames, DataStructures, Tables, JuMP, MosekTools, NamedArrays
 
 include("utils.jl")
 
@@ -202,10 +202,8 @@ function stochastic_capex( ; main_dir = pwd(),
     gensn = gens[GN] # get list of instances of generators without capacity factor profiles
 
 
-    GENS_AT_BUS = [ gens[ findall([g.bus_id == n for g in gens]) ] for n in N]
-    for n in N
-        gens[ findall([g.bus_id == n for g in gens]) ]
-    end
+    G_AT_BUS = NamedArray( [ gens[ findall([g.bus_id == n for g in gens]) ] for n in N ] , (N) )
+
 
     GENS_AT_BUS = to_stacked_Dict(gens_data, "bus", "generation_project")
     GV_AT_BUS = Dict(n => intersect(GV,gens) for (n, gens) in GENS_AT_BUS)
