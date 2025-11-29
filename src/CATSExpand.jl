@@ -39,7 +39,7 @@ function stochastic_capex( ; main_dir = pwd(),
     # Get a list of the scenario IDs
     S = getfield.(scen, :sc_id)
 
-    # Create NamedArray to access scenarios by their IDs
+    # Transform scen into NamedArray, so we can access scenarios by their IDs
     scen = NamedArray(scen, (S))
     
 
@@ -64,13 +64,20 @@ function stochastic_capex( ; main_dir = pwd(),
     # Get a list of the timepoint IDs
     TPS = getfield.(tps, :tp_id)
 
-    # Create NamedArray to access scenarios by their IDs
+    # Transform tps into NamedArray, so we can access timepoints by their IDs
     tps = NamedArray(tps, (TPS))
 
 
     """
-    Bus
-    A structure representing a bus in the power system.
+    Bus represents a bus or node in the power system.
+
+    # Fields:
+    - bus_id: ID of the bus
+    - kv: voltage level of the bus in kilovolts
+    - type: type of the bus (e.g., Substation)
+    - lat: latitude of the bus location
+    - lon: longitude of the bus location
+    - slack: boolean indicating if the bus is a slack bus
     """
     struct Bus
         bus_id:: String
@@ -81,19 +88,50 @@ function stochastic_capex( ; main_dir = pwd(),
         slack:: Bool
     end
 
-    N = to_Structs(Bus, inputs_dir, "buses.csv")
+    # Get a list of Bus structures
+    buses = to_Structs(Timepoint, inputs_dir, "buses.csv")
+
+    # Get a list of the timepoint IDs
+    N = getfield.(buses, :bus_id)
+
+    # Transform buses into NamedArray, so we can access buses by their IDs
+    buses = NamedArray(buses, (N))
+
+    # Get slack bus
+    slack_bus = buses[ findfirst([n.slack == true for n in B]) ]
 
 
-    loads_data = CSV.read(joinpath(inputs_dir, "loads.csv"),DataFrame, 
-                            types=[String, String, Int64, Float64]);
+    """
+    Load represents the load demand at a specific bus, scenario, and timepoint.
+    # Fields:
+    - bus_id: ID of the bus
+    - sc_id: ID of the scenario
+    - t_id: ID of the timepoint
+    - load: load demand in megawatts (MW)
+    """
+    struct Load
+        bus_id:: String
+        sc_id:: String
+        t_id:: String
+        load:: Float64
+    end
+   
+    l = to_Structs(Load, inputs_dir, "loads.csv")
+    load = to_multidim_NamedArray(l, [:bus_id, :sc_id, :t_id], :load)
 
-    #N = buses_data[:, :bus]
 
-    #load = to_tupled_Dict(loads_data, [:bus, :scenario, :timepoint], :bus_demand_mw)
-  
-    slack_bus = filter(row -> row.slack , buses_data) # get slack bus that has the column slack equal true
-    slack_bus = slack_bus[1, :bus] # get the first bus 
-
+    struct Generator
+        gen_id:: String
+        gen_tech:: String
+        bus_id:: String
+        c2:: Float64
+        c1:: Float64
+        c0:: Float64
+        invest_cost:: Float64
+        exist_cap:: Float64
+        cap_limit:: Float64
+        var_om_cost:: Float64
+    end
     # Generation projects
     gens_data = CSV.read(joinpath(inputs_dir, "generation_projects_info.csv"), DataFrame, 
                                 types=[String, String, String, Float64, Float64, Float64])
