@@ -34,8 +34,8 @@ struct System
     load:: NamedArray{Union{Missing, Float64}}
     gen:: NamedArray{Generator}
     cf:: NamedArray{Union{Missing, Float64}}
-    lines:: NamedArray{Line}
-    tps:: NamedArray{Timepoint}
+    line:: NamedArray{Line}
+    tp:: NamedArray{Timepoint}
 end
 
 """
@@ -61,10 +61,10 @@ function initialize(;main_dir = pwd())
     bus, load = Buses.load_data(inputs_dir)
     gen, cf = Generators.load_data(inputs_dir)
     line = Lines.load_data(inputs_dir)
-    tps = Timepoints.load_data(inputs_dir)
+    tp = Timepoints.load_data(inputs_dir)
 
     # Create instance of System struct
-    sys = System(sc, bus, load, gen, cf, line, tps)
+    sys = System(sc, bus, load, gen, cf, line, tp)
 
     return sys
 end
@@ -75,7 +75,7 @@ end
 Solves a stochastic capacity expansion problem.
 """ 
 #=
-function stochastic_capex( ; main_dir = pwd(), 
+function stoch_capex( ; main_dir = pwd(), 
                              solver = Mosek.Optimizer,
                              print_model = false)
     
