@@ -121,8 +121,10 @@ This function builds the admittance matrix of any power system.
             Y["lima", "lima"] = 0+0im
             Y["lima", "lima"] =  0+0im 
 
+TODO: add hint type to the lines argument. We may need to import the Line Struct.
+
 """
-function build_admittance_matrix(N:: Vector{String}, lines:: Vector{Any}; include_shunts=false) 
+function build_admittance_matrix(N:: Vector{String}, lines; include_shunts=false) 
                                 :: NamedArray{ComplexF64}
 
     # Define admittance matrix (actually it is NamedArray)
@@ -169,22 +171,18 @@ function build_admittance_matrix(N:: Vector{String}, lines:: Vector{Any}; includ
 end
 
 """
-
-
     - maxFlow: a dictionary that contains maximum power transfer ber bus. For example:
         Dict{String, Float64} with 2 entries:
             "san_diego" => 500
             "lima"    => 1000
 
 """
+function get_maxFlow(N:: Vector{String}, lines):: NamedArray{Float64}
 
-
-function get_maxFlow(N:: Vector{String}, lines:: Vector{Any}):: NamedArray{Float64}
-
+    num_buses = length(N)
     maxFlow =  NamedArray( zeros(Float64, num_buses), (N), :bus_id )
 
     for line in lines
-
         # Extract from_bus and to_bus from line instance
         from_bus = line.from_bus
         to_bus = line.to_bus

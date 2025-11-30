@@ -211,8 +211,20 @@ function stochastic_capex( ; main_dir = pwd(),
 
     
 
-    # Lines
+    
 
+    """
+    Line is a π-model transmission line connecting two buses in the power system.
+    # Fields:
+    - line_id: ID of the line
+    - from_bus: ID of the bus where the line starts
+    - to_bus: ID of the bus where the line ends
+    - rate: thermal rating of the line (MW)
+    - r: resistance of the line (p.u.)
+    - x: reactance of the line (p.u.)
+    - g: conductance of the shunt at one extreme of the line (p.u.)
+    - b: susceptance of the shunt at one extreme of the line (p.u.)
+    """
     struct Line
         line_id:: String
         from_bus:: String
@@ -226,9 +238,46 @@ function stochastic_capex( ; main_dir = pwd(),
 
     lines = to_Structs(Line, inputs_dir, "lines.csv")
 
-    Y, maxFlow = build_admittance_matrix(N, trans_line_data)
+    Y = build_admittance_matrix(N, lines)
 
     B = imag(Y) # take susceptance matrix
+
+    maxFlow = get_maxFlow(lines, N)
+
+    """
+    Energy storage represents an energy storage system in the power system.
+    # Fields:
+    - es_id: ID of the storage system
+    - es_tech: technology type of the storage system, for example, "battery", "pumped_hydro". It could be any string.
+    - bus_id: ID of the bus where the storage system is connected to.
+    - invest_cost: investment cost per MW of power capacity (USD/MW)
+    - exist_power_cap: pre-existing power capacity of the storage system (MW)
+    - exist_energy_cap: pre-existing energy capacity of the storage system (MWh)
+    - var_om_cost: variable operation and maintenance cost (USD/MW)
+    - efficiency: round-trip efficiency of the storage system (between 0 and 1)
+    - duration: duration of the storage system at full power (hours)
+    """
+    struct EnergyStorage 
+        es_id:: String
+        es_tech:: String
+        bus_id:: String
+        invest_cost:: Float64
+        exist_power_cap:: Float64
+        exist_energy_cap:: Float64
+        var_om_cost:: Float64
+        efficiency:: Float64
+        duration:: Float64
+    end
+
+    # Get a list of instances of EnergyStorage structures
+    ess = to_Structs(EnergyStorage, inputs_dir, "storages.csv")
+
+    # Get a list of the storage IDs
+    E = getfield.(gens, :gen_id)
+
+    # Transform gens into NamedArray, so we can access storages by their IDs
+    ess = NamedArray(ess, (E))
+    
 
     # Additional settings
     max_diffangle = CSV.read(joinpath(inputs_dir, "max_diffangle.csv"),DataFrame;
@@ -237,6 +286,7 @@ function stochastic_capex( ; main_dir = pwd(),
 
     θlim = max_diffangle[1, :deg] * π/180
 
+    
     println("> Building JuMP model:")
 
     # Create JuMP model
