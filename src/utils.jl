@@ -125,36 +125,39 @@ This function builds the admittance matrix of any power system.
             "lima"    => 1000
 
 """
-function build_admittance_matrix(buses:: Vector{String}, branch_data:: DataFrame; shunt_data=nothing) 
+function build_admittance_matrix(N:: Vector{String}, lines:: Vector{Any}; include_shunts=false) 
                                 :: Tuple{Dict{Tuple{String, String}, ComplexF64}, Dict{String, Float64}}
 
-    # Define admittance matrix (actually it is dictionary here, but it acts as a matrix)
-    # Note: we opt to use a dictionary so buses does not have to be a vector of numbers
-    #       then, the user has more flexibility to enter a set of buses like "san_diego", "lima", instead of 1, 2 ..
-    Y =  Dict((i, j) => 0.0 + 0.0im for i in buses for j in buses)
-    maxFlow = Dict( buses .=> 0.0 )
+    # Define admittance matrix (actually it is NamedArray)
+    # Note: we opt to use a NamedArray so N does not have to be a vector of numbers
+    #       then, the user has more flexibility to access the admittance matrix, for example, Y["sandiego", "lima"]
+    num_buses = length(buses)
 
-    # Transform dataframe to a vector of tuples (for efficient iterations)
-    branch_data = Tuple.(eachrow(branch_data)) # assume order (from_bus, to_bus, rate, r [p.u], x [p.u.])
+    Y =  NamedArray( zeros(Complex, num_buses, num_buses), (N, N), (:bus_id, :bus_id))
+    maxFlow = zeros(Float64, num_buses)
 
-    for (from_bus, to_bus, rate, r, x) in branch_data
+    for line in lines
+
+        from_bus = line.from_bus
+        to_bus = line.to_bus
+
         # Calculate branch admittance
-        z = complex(r, x)
+        z = complex(line.r, line.x)
         y = 1.0 / z
         
         # Off-diagonal elements. Y_ij = -y_ij
-        Y[(from_bus, to_bus)] -= y
-        Y[(to_bus, from_bus)] -= y
+        Y[from_bus, to_bus] -= y
+        Y[to_bus, from_bus] -= y
 
         # Diagonal elements. Note: Y_ii = y_1i + y2i + ... + yii + ...
-        Y[(from_bus, from_bus)] += y
-        Y[(to_bus, to_bus)] += y
+        Y[from_bus, from_bus] += y
+        Y[to_bus, to_bus] += y
 
         maxFlow[from_bus] += rate
         maxFlow[to_bus] += rate
     end
 
-    if shunt_data !== nothing
+    if include_shunts!== nothing
         shunt_data = Tuple.(eachrow(shunt_data)) # assume order (bus, g [p.u], b [p.u.])
 
         for (bus, g, b) in shunt_data

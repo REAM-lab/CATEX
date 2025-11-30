@@ -181,15 +181,16 @@ function stochastic_capex( ; main_dir = pwd(),
     cf = to_multidim_NamedArray(c, [:gen_id, :tp_id, :sc_id], :capacity_factor)
 
 
+
     """
     - GV is a list of generator IDs that has capacity factor profile.
     - gensv is a list of instances of generators with capacity factor profiles.
         Power generation and capacity of these generators are considered random variables 
         in the second-stage of the stochastic problem.
     """
-
     GV = names(cf, 1) # get IDs of generators with capacity factor profiles
     gensv = gens[GV] # get list of instances of generators with capacity factor profiles
+
 
     """
     - GN is a list generator IDs that does not have capacity factor profile.
@@ -202,18 +203,28 @@ function stochastic_capex( ; main_dir = pwd(),
     gensn = gens[GN] # get list of instances of generators without capacity factor profiles
 
 
-    G_AT_BUS = NamedArray( [ gens[ findall([g.bus_id == n for g in gens]) ] for n in N ] , (N) )
+    G_AT_BUS = NamedArray( [getfield.(filter(g -> g.bus_id == n, gens).array, :gen_id) for n in N], 
+                               (N), :bus_id )
 
-
-    GENS_AT_BUS = to_stacked_Dict(gens_data, "bus", "generation_project")
-    GV_AT_BUS = Dict(n => intersect(GV,gens) for (n, gens) in GENS_AT_BUS)
-    GN_AT_BUS = Dict(n => intersect(GN,gens) for (n, gens) in GENS_AT_BUS)
+    GV_AT_BUS = intersect.(G_AT_BUS, fill(GV, length(N)))
+    GN_AT_BUS = intersect.(G_AT_BUS, fill(GN, length(N)))
 
     
 
-    # Transmission lines
-    trans_line_data = CSV.read(joinpath(inputs_dir, "transmission_lines.csv"),DataFrame;
-                        types=[String, String, String, Float64, Float64, Float64, Float64])
+    # Lines
+
+    struct Line
+        line_id:: String
+        from_bus:: String
+        to_bus:: String
+        rate:: Float64
+        r:: Float64
+        x:: Float64
+        g:: Float64
+        b:: Float64
+    end
+
+    lines = to_Structs(Line, inputs_dir, "lines.csv")
 
     Y, maxFlow = build_admittance_matrix(N, trans_line_data)
 
