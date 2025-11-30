@@ -26,7 +26,7 @@ end
 """
 Load scenario data from a CSV file and return it as a NamedArray of Scenario structures.
 """
-function load_data(inputs_dir:: String)
+function load_data(inputs_dir:: String):: NamedArray{Scenario}
 
     # Get a list of Scenario structures
     scen = to_Structs(Scenario, inputs_dir, "scenarios.csv")

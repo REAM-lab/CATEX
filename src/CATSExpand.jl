@@ -3,31 +3,44 @@ module CATSExpand
 # Import Julia packages
 using CSV, DataFrames, DataStructures, Tables, JuMP, MosekTools, NamedArrays
 
+# Define internal modules
 include("utils.jl")
 include("Scenarios.jl")
 include("Buses.jl")
+include("Generators.jl")
+include("Lines.jl")
+include("Timepoints.jl")
 
-using .utils, .Scenarios, .Buses
+# Use internal modules
+using .utils, .Scenarios, .Buses, .Generators, .Lines, .Timepoints
 
-# Export the functions you want users to be able to access easily
-export initialize, System, Scenario, Bus
+# Export the functions we want users to be able to access easily
+export initialize, System, Scenario, Bus, Generator, Line, Timepoint
 
+"""
+System represents the entire power system for the stochastic capacity expansion problem.
+# Fields:
+- sc: NamedArray of instances of Scenario structure
+- buses: NamedArray of instances of Bus structure
+- gen: NamedArray of instances of Generator structure
+- tps: NamedArray of instances of Timepoint structure
+"""
 struct System
-    sc:: NamedArray
-    #buses:: NamedArray
-    #gens:: NamedArray
-    #lines:: NamedArray
-    #tps:: NamedArray
+    sc:: NamedArray{Scenario}
+    bus:: NamedArray{Bus}
+    gen:: NamedArray{Generator}
+    lines:: NamedArray{Line}
+    tps:: NamedArray{Timepoint}
     #loads:: NamedArray
     #cf:: NamedArray
 end
 
 """
-This function defines how to display the System struct in the REPL or when printed.
+This function defines how to display the System struct in the REPL or when printed in Julia console.
 """
 function Base.show(io::IO, ::MIME"text/plain", s::System)
     println(io, "System:")
-    println(io, " Scenarios (scens) = ", names(s.scens, 1))
+    println(io, " Scenarios (scens) = ", names(s.sc, 1))
     #print(io, " y = ", p.y)
 end
 
@@ -37,14 +50,13 @@ function initialize(;main_dir = pwd())
     
     sc = Scenarios.load_data(inputs_dir)
     bus = Buses.load_data(inputs_dir)
-    #gens = load_generators(inputs_dir)
-    #lines = load_lines(inputs_dir)
-    #tps = load_timepoints(inputs_dir)
+    gen = Generators.load_data(inputs_dir)
+    line = Lines.load_data(inputs_dir)
+    tps = Timepoints.load_data(inputs_dir)
     #loads = load_loads(inputs_dir)
     #cf = load_capacity_factors(inputs_dir)
 
-    #sys = system(scens, buses, gens, lines, tps, loads, cf)
-    sys = System(scens)
+    sys = System(sc, bus, gen, line, tps)
 
     return sys
 end

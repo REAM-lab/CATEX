@@ -1,3 +1,6 @@
+"""
+Buses Module for handling bus data in a power system.
+"""
 module Buses
 
 # Use Julia standard libraries and third-party packages
@@ -32,7 +35,7 @@ end
 """
 Load bus data from a CSV file and return it as a NamedArray of Bus structures.
 """
-function load_data(inputs_dir:: String)
+function load_data(inputs_dir:: String):: NamedArray{Bus}
 
     # Get a list of Bus structures
     buses = to_Structs(Bus, inputs_dir, "buses.csv")

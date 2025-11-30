@@ -1,3 +1,6 @@
+"""
+Module for handling timepoints in the stochastic capacity expansion problem.
+"""
 module Timepoints    
     
 # Use Julia standard libraries and third-party packages
@@ -18,15 +21,16 @@ stochastic capacity expansion problem.
 - duration: duration of the timepoint in hours
 """
 struct Timepoint
-    tp_id:: Int64
-    timestamp:: Float64
+    tp_id:: String
+    timestamp:: Int64
     duration:: Float64
 end 
 
 """
 Load timepoint data from a CSV file and return it as a NamedArray of Timepoint structures.
 """
-function load_data(inputs_dir:: String)
+function load_data(inputs_dir:: String):: NamedArray{Timepoint}
+
     # Get a list of Scenario structures
     tps = to_Structs(Timepoint, inputs_dir, "timepoints.csv")
 
