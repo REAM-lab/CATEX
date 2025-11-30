@@ -96,55 +96,51 @@ end
 
 
 """
-`build_admittance_matrix(buses:: Vector{String}, branch_data:: DataFrame; shunt_data=nothing)`
+`build_admittance_matrix(N:: Vector{String}, lines:: Vector{Any}; include_shunts=false) 
+                         :: NamedArray{ComplexF64}`
 
 This function builds the admittance matrix of any power system.
 
 ## Args:
     - buses: a vector containing the buses of the system. For example, buses=["san_diego", "lima"]
-    - branch_data (dataframe): It must include these columns:
-            from_bus | to_bus | rate | r | l
-        0   
+    - lines: A vector or list of instances of the structure Line. The struct Line must
+             have the following attributes from_bus, to_bus, r, x, g, b. Note that g and b are the 
+             conductance and susceptance, respectively, in one extreme of the line.
 
-    - shunt_data (dataframe): It must include these columns:
-            bus | g | b
-        0   
+## Optional Args:
+    - include_shunts: if yes, the conductance (g) and susceptance (b) are considered in the calculation of
+                      the admittance matrix.
+
 ## Returns:
-    - Y: a dictionary that contains admittance matrix information. Y is commonly defined as a matrix, but here we use
-         a dictionary so the user can enter buses as a set of strings like "san_diego", "lima", instead of 1, 2 ..
-        for example: 
-        Dict{Tuple{String, String}, Complex{Float64}} with 4 entries:
-            ("san_diego", "lima")   => 0+0im
-            ("lima", "san_diego")  => 0+0im
-            ("lima", "lima") => 0+0im
-            ("san_diego", "san_diego")  => 0+0im 
-
-    - maxFlow: a dictionary that contains maximum power transfer ber bus. For example:
-        Dict{String, Float64} with 2 entries:
-            "san_diego" => 500
-            "lima"    => 1000
+    - Y: a NamedArray that contains the admittance matrix. Y is commonly defined as a pure array, 
+         but here we use a NamedArray, so the user can access entries of Y by two options:
+         using strings like "san_diego", "lima", or numerical indices 1, 2 .. 
+        for example: these combinations to access Y data work:
+            Y["san_diego", "lima"]   = 0+0im
+            Y["lima", "san_diego"]  = 0+0im
+            Y["lima", "lima"] = 0+0im
+            Y["lima", "lima"] =  0+0im 
 
 """
 function build_admittance_matrix(N:: Vector{String}, lines:: Vector{Any}; include_shunts=false) 
-                                :: Tuple{Dict{Tuple{String, String}, ComplexF64}, Dict{String, Float64}}
+                                :: NamedArray{ComplexF64}
 
     # Define admittance matrix (actually it is NamedArray)
     # Note: we opt to use a NamedArray so N does not have to be a vector of numbers
     #       then, the user has more flexibility to access the admittance matrix, for example, Y["sandiego", "lima"]
-    num_buses = length(buses)
+    num_buses = length(N)
 
     Y =  NamedArray( zeros(Complex, num_buses, num_buses), (N, N), (:bus_id, :bus_id))
-    maxFlow = zeros(Float64, num_buses)
-
+    
     for line in lines
-
-        from_bus = line.from_bus
-        to_bus = line.to_bus
-
         # Calculate branch admittance
         z = complex(line.r, line.x)
         y = 1.0 / z
         
+        # Extract from_bus and to_bus from line instance
+        from_bus = line.from_bus
+        to_bus = line.to_bus
+
         # Off-diagonal elements. Y_ij = -y_ij
         Y[from_bus, to_bus] -= y
         Y[to_bus, from_bus] -= y
@@ -152,25 +148,53 @@ function build_admittance_matrix(N:: Vector{String}, lines:: Vector{Any}; includ
         # Diagonal elements. Note: Y_ii = y_1i + y2i + ... + yii + ...
         Y[from_bus, from_bus] += y
         Y[to_bus, to_bus] += y
-
-        maxFlow[from_bus] += rate
-        maxFlow[to_bus] += rate
     end
 
-    if include_shunts!== nothing
-        shunt_data = Tuple.(eachrow(shunt_data)) # assume order (bus, g [p.u], b [p.u.])
-
-        for (bus, g, b) in shunt_data
-
+    if include_shunts
+        for line in lines
             # Calculate shunt admittance 
-            y_shunt = complex(g, b)
+            y_shunt = complex(line.g, line.b)
+
+            # Extract bus 
+            from_bus = line.from_bus
+            to_bus = line.to_bus
             
             # Add shunt admittance to the current admittance matrix
-            Y[(bus, bus)] += y_shunt
-
+            Y[from_bus, from_bus] += y_shunt
+            Y[to_bus, to_bus] += y_shunt
         end
     end
-    return Y, maxFlow
+
+    return Y
 end
 
+"""
+
+
+    - maxFlow: a dictionary that contains maximum power transfer ber bus. For example:
+        Dict{String, Float64} with 2 entries:
+            "san_diego" => 500
+            "lima"    => 1000
+
+"""
+
+
+function get_maxFlow(N:: Vector{String}, lines:: Vector{Any}):: NamedArray{Float64}
+
+    maxFlow =  NamedArray( zeros(Float64, num_buses), (N), :bus_id )
+
+    for line in lines
+
+        # Extract from_bus and to_bus from line instance
+        from_bus = line.from_bus
+        to_bus = line.to_bus
+        rate = line.rate
+        
+        maxFlow[from_bus] += rate
+        maxFlow[to_bus] += rate
+
+    end
+    return maxFlow
 end
+
+end # ends utils module
