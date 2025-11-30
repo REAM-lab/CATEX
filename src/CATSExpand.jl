@@ -4,7 +4,7 @@ module CATSExpand
 using CSV, DataFrames, DataStructures, Tables, JuMP, MosekTools, NamedArrays
 
 # Define internal modules
-include("utils.jl")
+include("Utils.jl")
 include("Scenarios.jl")
 include("Buses.jl")
 include("Generators.jl")
@@ -12,27 +12,30 @@ include("Lines.jl")
 include("Timepoints.jl")
 
 # Use internal modules
-using .utils, .Scenarios, .Buses, .Generators, .Lines, .Timepoints
+using .Utils, .Scenarios, .Buses, .Generators, .Lines, .Timepoints
 
 # Export the functions we want users to be able to access easily
-export initialize, System, Scenario, Bus, Generator, Line, Timepoint
+export initialize, System, Scenario, Bus, Load, Generator, CapacityFactor, Line, Timepoint
 
 """
 System represents the entire power system for the stochastic capacity expansion problem.
 # Fields:
 - sc: NamedArray of instances of Scenario structure
 - buses: NamedArray of instances of Bus structure
+- loads: multidimensional NamedArray of load data
 - gen: NamedArray of instances of Generator structure
+- cf: multidimensional NamedArray of capacity factors data
+- lines: NamedArray of instances of Line structure
 - tps: NamedArray of instances of Timepoint structure
 """
 struct System
     sc:: NamedArray{Scenario}
     bus:: NamedArray{Bus}
+    load:: NamedArray{Union{Missing, Float64}}
     gen:: NamedArray{Generator}
+    cf:: NamedArray{Union{Missing, Float64}}
     lines:: NamedArray{Line}
     tps:: NamedArray{Timepoint}
-    #loads:: NamedArray
-    #cf:: NamedArray
 end
 
 """
@@ -40,23 +43,28 @@ This function defines how to display the System struct in the REPL or when print
 """
 function Base.show(io::IO, ::MIME"text/plain", s::System)
     println(io, "System:")
-    println(io, " Scenarios (scens) = ", names(s.sc, 1))
+    println(io, " Scenarios (sc) = ", names(s.sc, 1))
     #print(io, " y = ", p.y)
 end
 
+
+"""
+Initialize the System struct by loading data from CSV files in the inputs directory.
+"""
 function initialize(;main_dir = pwd())
 
+    # Define the inputs directory
     inputs_dir = joinpath(main_dir, "inputs")
     
+    # Fill in the fields of the System struct with CSV data
     sc = Scenarios.load_data(inputs_dir)
-    bus = Buses.load_data(inputs_dir)
-    gen = Generators.load_data(inputs_dir)
+    bus, load = Buses.load_data(inputs_dir)
+    gen, cf = Generators.load_data(inputs_dir)
     line = Lines.load_data(inputs_dir)
     tps = Timepoints.load_data(inputs_dir)
-    #loads = load_loads(inputs_dir)
-    #cf = load_capacity_factors(inputs_dir)
 
-    sys = System(sc, bus, gen, line, tps)
+    # Create instance of System struct
+    sys = System(sc, bus, load, gen, cf, line, tps)
 
     return sys
 end

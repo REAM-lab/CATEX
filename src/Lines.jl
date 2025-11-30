@@ -4,10 +4,10 @@ module Lines
 using NamedArrays
 
 # Use internal modules
-using ..utils
+using ..Utils
 
 # Export variables and functions
-export Line, load_data
+export Line, load_data, build_admittance_matrix, get_maxFlow
 
 """
 Line is a π-model transmission line connecting two buses in the power system.
@@ -35,10 +35,18 @@ end
 """
 Load line data from a CSV file and return it as a NamedArray of Line structures.
 """
-function load_data(inputs_dir:: String)
+function load_data(inputs_dir:: String):: NamedArray{Line}
 
+    # Get a list of Line structures
     lines = to_Structs(Line, inputs_dir, "lines.csv")
 
+    # Get a list of the line IDs
+    L = getfield.(lines, :line_id)
+
+    # Transform lines into NamedArray, so we can access lines by their IDs
+    lines = NamedArray(lines, (L))
+
+    return lines
 end
 
 

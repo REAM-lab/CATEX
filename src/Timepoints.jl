@@ -7,7 +7,7 @@ module Timepoints
 using NamedArrays
 
 # Use internal modules
-using ..utils
+using ..Utils
 
 # Export variables and functions
 export Timepoint, load_data

@@ -7,7 +7,7 @@ module Generators
 using NamedArrays
 
 # Use internal modules
-using ..utils
+using ..Utils
 
 # Export variables and functions
 export Generator, load_data
@@ -40,9 +40,26 @@ struct Generator
 end
 
 """
+CapacityFactor represents the capacity factor of a generator
+at a specific scenario and timepoint. 
+# Fields:
+- gen_id: ID of the generation project
+- tp_id: ID of the timepoint
+- sc_id: ID of the scenario
+- capacity_factor: capacity factor (between 0 and 1)
+"""
+struct CapacityFactor
+    gen_id:: String
+    tp_id:: String
+    sc_id:: String
+    capacity_factor:: Float64
+end
+
+
+"""
 Load generator data from a CSV file and return it as a NamedArray of Generator structures.
 """
-function load_data(inputs_dir:: String):: NamedArray{Generator}
+function load_data(inputs_dir:: String):: Tuple{NamedArray{Generator}, NamedArray{Union{Missing, Float64}}}
 
     # Get a list of instances of generators structures
     gens = to_Structs(Generator, inputs_dir, "generators.csv")
@@ -53,7 +70,13 @@ function load_data(inputs_dir:: String):: NamedArray{Generator}
     # Transform gens into NamedArray, so we can access generators by their IDs
     gens = NamedArray(gens, (G), :gen_id)
 
-    return gens
+    # Load capacity factor data
+    c = to_Structs(CapacityFactor, inputs_dir, "capacity_factors.csv")
+
+    # Transform capacity factor data into a multidimensional NamedArray
+    cf = to_multidim_NamedArray(c, [:gen_id, :tp_id, :sc_id], :capacity_factor)
+
+    return gens, cf
 end
 
 end # module Generators

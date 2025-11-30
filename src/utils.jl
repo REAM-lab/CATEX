@@ -1,8 +1,10 @@
-module utils
+module Utils
 
-using DataFrames, JuMP, CSV
+# Use Julia standard libraries and third-party packages
+using DataFrames, JuMP, CSV, NamedArrays
 
-export to_stacked_Dict, to_Dict, to_tupled_Dict, to_Df, build_admittance_matrix, to_Structs
+# Export variables and functions
+export to_Structs, to_multidim_NamedArray, to_Df
 
 function to_Structs(structure::DataType, inputs_dir:: String, filename:: String):: Vector{structure}
     file_dir = joinpath(inputs_dir, filename)

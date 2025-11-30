@@ -7,7 +7,7 @@ module Scenarios
 using NamedArrays
 
 # Use internal modules
-using ..utils
+using ..Utils
 
 # Export variables and functions
 export Scenario, load_data

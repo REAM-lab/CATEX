@@ -7,7 +7,7 @@ module Buses
 using NamedArrays
 
 # Use internal modules
-using ..utils
+using ..Utils
 
 # Export variables and functions
 export Bus, load_data
@@ -33,9 +33,24 @@ struct Bus
 end
 
 """
+Load represents the load demand at a specific bus, scenario, and timepoint.
+# Fields:
+- bus_id: ID of the bus
+- sc_id: ID of the scenario
+- t_id: ID of the timepoint
+- load: load demand in megawatts (MW)
+"""
+struct Load
+    bus_id:: String
+    sc_id:: String
+    t_id:: String
+    load:: Float64
+end
+
+"""
 Load bus data from a CSV file and return it as a NamedArray of Bus structures.
 """
-function load_data(inputs_dir:: String):: NamedArray{Bus}
+function load_data(inputs_dir:: String):: Tuple{NamedArray{Bus}, NamedArray{Union{Missing, Float64}}}
 
     # Get a list of Bus structures
     buses = to_Structs(Bus, inputs_dir, "buses.csv")
@@ -46,7 +61,18 @@ function load_data(inputs_dir:: String):: NamedArray{Bus}
     # Transform buses into NamedArray, so we can access buses by their IDs
     buses = NamedArray(buses, (N))
 
-    return buses
+    # Load load data
+    l = to_Structs(Load, inputs_dir, "loads.csv")
+    
+    # Transform load data into a multidimensional NamedArray
+    load = to_multidim_NamedArray(l, [:bus_id, :sc_id, :t_id], :load)
+
+    return buses, load
 end
+
+
+
+   
+
 
 end # module Buses
