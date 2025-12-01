@@ -9,13 +9,14 @@ include("Scenarios.jl")
 include("Buses.jl")
 include("Generators.jl")
 include("Lines.jl")
+include("EnergyStorages.jl")
 include("Timepoints.jl")
 
 # Use internal modules
-using .Utils, .Scenarios, .Buses, .Generators, .Lines, .Timepoints
+using .Utils, .Scenarios, .Buses, .Generators, .Lines, .EnergyStorages, .Timepoints
 
 # Export the functions we want users to be able to access easily
-export initialize, System, Scenario, Bus, Load, Generator, CapacityFactor, Line, Timepoint
+export initialize, System, Scenario, Bus, Load, Generator, CapacityFactor, Line, EnergyStorage, Timepoint
 
 """
 System represents the entire power system for the stochastic capacity expansion problem.
@@ -25,8 +26,9 @@ System represents the entire power system for the stochastic capacity expansion 
 - loads: multidimensional NamedArray of load data
 - gen: NamedArray of instances of Generator structure
 - cf: multidimensional NamedArray of capacity factors data
-- lines: NamedArray of instances of Line structure
-- tps: NamedArray of instances of Timepoint structure
+- line: NamedArray of instances of Line structure
+- es: NamedArray of instances of EnergyStorage structure
+- tp: NamedArray of instances of Timepoint structure
 """
 struct System
     sc:: NamedArray{Scenario}
@@ -35,6 +37,7 @@ struct System
     gen:: NamedArray{Generator}
     cf:: NamedArray{Union{Missing, Float64}}
     line:: NamedArray{Line}
+    es:: NamedArray{EnergyStorage}
     tp:: NamedArray{Timepoint}
 end
 
@@ -61,10 +64,11 @@ function initialize(;main_dir = pwd())
     bus, load = Buses.load_data(inputs_dir)
     gen, cf = Generators.load_data(inputs_dir)
     line = Lines.load_data(inputs_dir)
+    es = EnergyStorages.load_data(inputs_dir)
     tp = Timepoints.load_data(inputs_dir)
 
     # Create instance of System struct
-    sys = System(sc, bus, load, gen, cf, line, tp)
+    sys = System(sc, bus, load, gen, cf, line, es, tp)
 
     return sys
 end
@@ -74,6 +78,49 @@ end
 """
 Solves a stochastic capacity expansion problem.
 """ 
+function stoch_capex( ; main_dir = pwd(), 
+                             solver = Mosek.Optimizer,
+                             print_model = false)
+    
+    # Initialize the system by loading data
+    sys = initialize(main_dir = main_dir)
+
+    # Get scenarios
+    sc = sys.sc
+    SC = names(sc,1) # IDs
+
+    # Get buses
+    bus = sys.bus
+    N = names(bus,1) # IDs
+
+    # Get load
+    load = sys.load
+
+    # Get generators
+    gen = sys.gen
+    G = names(gen, 1) # IDs
+
+    # Get capacity_factors
+    cf = sys.cf
+
+    # Get lines
+    line = sys.line
+    Y = build_admittance_matrix(N, line)
+    maxFlow = get_maxFlow(N, line)
+
+    # Get storage units
+    es = sys.es
+    E = names(es, 1) # IDs
+
+    # Get timepoints
+    tp = sys.tp
+    T = names(tp, 1) # IDs
+
+    
+
+end
+
+
 #=
 function stoch_capex( ; main_dir = pwd(), 
                              solver = Mosek.Optimizer,

@@ -34,14 +34,16 @@ struct EnergyStorage
     duration:: Float64
 end
 
-function load_data(inputs_dir:: String)
+function load_data(inputs_dir:: String):: NamedArray{EnergyStorage}
     # Get a list of instances of EnergyStorage structures
-    ess = to_Structs(EnergyStorage, inputs_dir, "storages.csv")
+    ess = to_Structs(EnergyStorage, inputs_dir, "energy_storages.csv")
 
     # Get a list of the storage IDs
-    E = getfield.(gens, :gen_id)
+    E = getfield.(ess, :es_id)
 
-    # Transform gens into NamedArray, so we can access storages by their IDs
+    # Transform storage into NamedArray, so we can access storages by their IDs
     ess = NamedArray(ess, (E))
+
+    return ess
 end
 end # module EnergyStorage
