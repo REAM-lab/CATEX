@@ -1,27 +1,56 @@
 module CATSExpand
 
 # Import Julia packages
-using CSV, DataFrames, DataStructures, Tables, JuMP, MosekTools, NamedArrays
+using CSV, DataFrames, DataStructures, Tables, JuMP, MosekTools, NamedArrays, BenchmarkTools
 
 # Define internal modules
 include("Utils.jl")
 include("Scenarios.jl")
-include("Buses.jl")
+include("Transmission.jl")
 include("Generators.jl")
-include("Lines.jl")
 include("EnergyStorages.jl")
 include("Timepoints.jl")
 include("Policies.jl")
-include("Systems.jl")
 
 
 # Use internal modules
-using .Utils, .Scenarios, .Buses, .Generators, .Lines, .EnergyStorages, .Timepoints, .Policies, .Systems
+using .Utils, .Scenarios, .Transmission, .Generators, .EnergyStorages, .Timepoints, .Policies
 
 # Export the functions we want users to be able to access easily
-export init_system, init_policies, stoch_capex
+export init_system, init_policies, build_stochastic_capex_model
 export System, Scenario, Bus, Load, Generator, CapacityFactor, Line, EnergyStorage, Timepoint, Policy
 
+"""
+System represents the entire power system for the stochastic capacity expansion problem.
+# Fields:
+- sc: NamedArray of instances of Scenario structure
+- buses: NamedArray of instances of Bus structure
+- loads: multidimensional NamedArray of load data
+- gen: NamedArray of instances of Generator structure
+- cf: multidimensional NamedArray of capacity factors data
+- line: NamedArray of instances of Line structure
+- es: NamedArray of instances of EnergyStorage structure
+- tp: NamedArray of instances of Timepoint structure
+"""
+struct System
+    S:: NamedArray{Scenario}
+    N:: NamedArray{Bus}
+    load:: NamedArray{Union{Missing, Float64}}
+    G:: NamedArray{Generator}
+    cf:: NamedArray{Union{Missing, Float64}}
+    L:: NamedArray{Line}
+    E:: NamedArray{EnergyStorage}
+    T:: NamedArray{Timepoint}
+end
+
+"""
+This function defines how to display the System struct in the REPL or when printed in Julia console.
+"""
+function Base.show(io::IO, ::MIME"text/plain", s::System)
+    println(io, "System:")
+    println(io, " Scenarios (sc) = ", names(s.sc, 1))
+    #print(io, " y = ", p.y)
+end
 
 """
 Initialize the System struct by loading data from CSV files in the inputs directory.
@@ -33,14 +62,13 @@ function init_system(;main_dir = pwd())
     
     # Fill in the fields of the System struct with CSV data
     scs = Scenarios.load_data(inputs_dir)
-    buses, load = Buses.load_data(inputs_dir)
+    buses, load, lines = Transmission.load_data(inputs_dir)
     gens, cf = Generators.load_data(inputs_dir)
-    lines = Lines.load_data(inputs_dir)
     ess = EnergyStorages.load_data(inputs_dir)
     tps = Timepoints.load_data(inputs_dir)
 
     # Create instance of System struct
-    sys = System(scs, buses, loads, gens, cf, lines, ess, tps)
+    sys = System(scs, buses, load, gens, cf, lines, ess, tps)
 
     return sys
 end
@@ -59,10 +87,33 @@ end
 """
 Solves a stochastic capacity expansion problem.
 """ 
-function stoch_capex(sys, pol    ;main_dir = pwd(), 
-                                  solver = Mosek.Optimizer,
+function build_stochastic_capex_model(sys, pol    ;main_dir = pwd(), 
+                                    solver = Mosek.Optimizer,
                                     print_model = false)
 
+
+    println("> Building JuMP model:")
+
+    # Create JuMP model
+    mod = Model(optimizer_with_attributes(solver))
+
+
+    print("> Generator constraints ... ")
+    timing = @elapsed Generators.stochastic_capex_model!(mod, sys, pol)
+    println(" ok, $(round(timing, digits = 3)) seconds.")
+
+    print("> Transmission constraints ... ")
+    Transmission.stochastic_capex_model!(mod, sys, pol)
+    print(" ok.\n")
+
+    print("> Policy constraints ... ")
+    Policies.stochastic_capex_model!(mod, sys, pol)
+    print(" ok.\n")
+
+
+
+
+#= 
     # Get scenarios
     S = sys.sc
 
@@ -105,7 +156,7 @@ function stoch_capex(sys, pol    ;main_dir = pwd(),
     mod = Model(optimizer_with_attributes(solver))
     
     
-#= 
+
     print(" > Generation constraints ...")
 
 
@@ -116,9 +167,7 @@ function stoch_capex(sys, pol    ;main_dir = pwd(),
     print(" > Bus constraints ...")
 
 
-    # Maximum power transfered by bus
-    @constraint(mod, cAngleLimit[n ∈ setdiff(N, [slack_bus]), s ∈ S, t ∈ T],
-                    -θlim ≤ THETA[n, s, t] ≤ θlim)
+
 
     # Power generation by bus
     @expression(mod, eGenAtBus[n ∈ N, s ∈ S, t ∈ T], 
@@ -129,13 +178,12 @@ function stoch_capex(sys, pol    ;main_dir = pwd(),
     @expression(mod, eFlowAtBus[n ∈ N, s ∈ S, t ∈ T], 
                     sum(B[n.bus_id, m.bus_id] * (THETA[n, s, t] - THETA[m, s, t]) for m in N))
 
-    # Maximum power transfered by bus
-    @constraint(mod, cMaxFlowAtBus[n ∈ N, s ∈ S, t ∈ T],
-                    -maxFlow[n.bus_id] ≤ eFlowAtBus[n, s, t] ≤ maxFlow[n.bus_id])
+        # Maximum power transfered by bus
+        @constraint(mod, cMaxFlowAtBus[n ∈ N, s ∈ S, t ∈ T],
+                        -maxFlow[n.bus_id] ≤ eFlowAtBus[n, s, t] ≤ maxFlow[n.bus_id])
 
     # Power balance
-    @constraint(mod, cGenBalance[n ∈ N, s ∈ S, t ∈ T], 
-                    eGenAtBus[n, s, t] ≥ load[n.bus_id, s.sc_id, t.tp_id] + eFlowAtBus[n, s, t])    
+
 
     print(" ok.\n")
 

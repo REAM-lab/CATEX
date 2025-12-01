@@ -10,7 +10,7 @@ using NamedArrays, JuMP
 using ..Utils
 
 # Export variables and functions
-export Generator, load_data
+export Generator, load_data, stochastic_capex_model!
 
 """
 Generator represents a generation project or existing generator in the power system.
@@ -79,7 +79,7 @@ function load_data(inputs_dir:: String):: Tuple{NamedArray{Generator}, NamedArra
     return gens, cf
 end
 
-function stochastic_capex_model!(sys, mod:: Model)
+function stochastic_capex_model!(mod:: Model, sys, pol)
 
     S = sys.S
     T = sys.T
@@ -107,7 +107,7 @@ function stochastic_capex_model!(sys, mod:: Model)
 
     G_AT_BUS = NamedArray( [filter(g -> g.bus_id == n, G.array) for n in Nids], Nids, :bus_id )
     GV_AT_BUS= intersect.(G_AT_BUS, fill(GV, length(Nids)))  
-    GV_AT_BUS = intersect.(G_AT_BUS, fill(GN, length(Nids)))    
+    GN_AT_BUS = intersect.(G_AT_BUS, fill(GN, length(Nids)))    
     
     # Define generation variables
     @variables(mod, begin
@@ -119,7 +119,7 @@ function stochastic_capex_model!(sys, mod:: Model)
 
     # Minimum capacity of generators
     @constraint(mod, cFixCapGenVar[g ∈ GV, s ∈ S], 
-                    CAPV[g, s] ≥ g.exist_cap)
+                    vCAP[g, s] ≥ g.exist_cap)
 
     @constraint(mod, cFixCapGenNonVar[g ∈ GN], 
                     CAP[g] ≥ g.exist_cap)
@@ -128,16 +128,36 @@ function stochastic_capex_model!(sys, mod:: Model)
     @constraint(mod, cMaxCapNonVar[g ∈ GN], 
                     CAP[g] ≤ g.cap_limit)
 
-    #Main.@infiltrate
+
     @constraint(mod, cMaxCapVar[g ∈ GV, s ∈ S], 
-                    CAPV[g, s] ≤ g.cap_limit)
+                    vCAP[g, s] ≤ g.cap_limit)
     
     # Maximum power generation
     @constraint(mod, cMaxGenNonVar[g ∈ GN, t ∈ T], 
                     GEN[g, t] ≤ CAP[g])
 
     @constraint(mod, cMaxGenVar[g ∈ GV, s ∈ S, t ∈ T], 
-                    GENV[g, s, t] ≤ cf[g.gen_id, s.sc_id, t.tp_id]*CAPV[g, s])
+                    vGEN[g, s, t] ≤ cf[g.gen_id, s.sc_id, t.tp_id]*vCAP[g, s])
+
+    # Power generation by bus
+    @expression(mod, eGenAtBus[n ∈ N, s ∈ S, t ∈ T], 
+                    sum(GEN[g, t] for g ∈ GN_AT_BUS[n.bus_id]) 
+                    + sum(vGEN[g, s, t] for g ∈ GV_AT_BUS[n.bus_id]) )
+
+    
+    # The weighted operational costs of running each generator
+    @expression(mod, eVariableCosts[t ∈ T],
+                    sum(t.duration * g.var_om_cost * GEN[g, t] for g ∈ GN, t ∈ T) 
+                    + 1/length(S)*(sum(s.prob * t.duration * g.var_om_cost * vGEN[g, s, t] for g ∈ GV, s ∈ S, t ∈ T) ))
+
+    # Fixed costs 
+	@expression(mod, eFixedCosts,
+                    sum(g.invest_cost * CAP[g] for g ∈ GN) 
+                    + 1/length(S)*sum( (s.prob * g.invest_cost * vCAP[g, s]) for g ∈ GV, s ∈ S ))
+
+    # Total costs
+    @expression(mod, eTotalCosts,
+                    sum(eVariableCosts[t] for t ∈ T) + eFixedCosts)
 end
 
 end # module Generators

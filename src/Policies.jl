@@ -1,7 +1,14 @@
 module Policies 
 
 # Use Julia standard libraries and third-party packages
-using CSV, DataFrames
+using CSV, DataFrames, JuMP
+
+# Use internal modules
+using ..Utils
+
+# Export variables and functions
+export Policy, load_data, stochastic_capex_model!
+
 
 """
 Policy struct to hold policy parameters, additional restrictions, etc for the power system.
@@ -33,9 +40,22 @@ function load_data(inputs_dir:: String):: Policy
     # return Policy(budget, bus_angle_diff, max_CO2_emissions)
 end
 
-function stochastic_capex_model!(sys, mod:: Model)
+function stochastic_capex_model!(mod:: Model, sys, pol)
+
+    N = sys.N
+    S = sys.S
+    T = sys.T
+
+    # Add policies
+    θlim = pol.max_diffangle
+
+    # Extract variables from other submodules
+    THETA = mod[:THETA]
 
     # Maximum power transfered by bus
-    @constraint(mod, cAngleLimit[n ∈ setdiff(N, [slack_bus]), s ∈ S, t ∈ T],
+    @constraint(mod, cAngleLimit[n ∈ N, s ∈ S, t ∈ T],
                     -θlim ≤ THETA[n, s, t] ≤ θlim)
+                    
+end
+
 end # module Policies

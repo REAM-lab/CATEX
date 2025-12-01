@@ -1,14 +1,51 @@
-module Lines
+"""
+Transmission Module for handling bus data in a power system.
+"""
+module Transmission
 
 # Use Julia standard libraries and third-party packages
 using NamedArrays, JuMP
 
 # Use internal modules
 using ..Utils
-using ..Buses: Bus
 
 # Export variables and functions
-export Line, load_data, build_admittance_matrix, get_maxFlow
+export Bus, Line, load_data, stochastic_capex_model!
+
+"""
+Bus represents a bus or node in the power system.
+# Fields:
+- bus_id: ID of the bus
+- kv: voltage level of the bus in kilovolts
+- type: type of the bus (e.g., Substation). It could be any string.
+- lat: latitude of the bus location
+- lon: longitude of the bus location
+- slack: boolean (true or false) indicating if the bus is a slack bus. 
+         At least there must be one slack bus in the system.
+"""
+struct Bus
+    bus_id:: String
+    kv:: Float64
+    type:: String
+    lat:: Float64
+    lon:: Float64
+    slack:: Bool
+end
+
+"""
+Load represents the load demand at a specific bus, scenario, and timepoint.
+# Fields:
+- bus_id: ID of the bus
+- sc_id: ID of the scenario
+- t_id: ID of the timepoint
+- load: load demand in megawatts (MW)
+"""
+struct Load
+    bus_id:: String
+    sc_id:: String
+    tp_id:: String
+    load:: Float64
+end
 
 """
 Line is a π-model transmission line connecting two buses in the power system.
@@ -34,9 +71,24 @@ struct Line
 end
 
 """
-Load line data from a CSV file and return it as a NamedArray of Line structures.
+Load bus data from a CSV file and return it as a NamedArray of Bus structures.
 """
-function load_data(inputs_dir:: String):: NamedArray{Line}
+function load_data(inputs_dir:: String):: Tuple{NamedArray{Bus}, NamedArray{Union{Missing, Float64}}, NamedArray{Line}}
+
+    # Get a list of Bus structures
+    buses = to_Structs(Bus, inputs_dir, "buses.csv")
+
+    # Get a list of the bus IDs
+    N = getfield.(buses, :bus_id)
+
+    # Transform buses into NamedArray, so we can access buses by their IDs
+    buses = NamedArray(buses, (N))
+
+    # Load load data
+    l = to_Structs(Load, inputs_dir, "loads.csv")
+    
+    # Transform load data into a multidimensional NamedArray
+    load = to_multidim_NamedArray(l, [:bus_id, :sc_id, :tp_id], :load)
 
     # Get a list of Line structures
     lines = to_Structs(Line, inputs_dir, "lines.csv")
@@ -47,9 +99,8 @@ function load_data(inputs_dir:: String):: NamedArray{Line}
     # Transform lines into NamedArray, so we can access lines by their IDs
     lines = NamedArray(lines, (L))
 
-    return lines
+    return buses, load, lines
 end
-
 
 """
 `build_admittance_matrix(N:: Vector{String}, lines:: Vector{Any}; include_shunts=false) 
@@ -152,29 +203,44 @@ function get_maxFlow(N, lines):: NamedArray{Float64}
     return maxFlow
 end
 
-
 function stochastic_capex_model!(mod:: Model, sys, pol)
 
+    # Extract system data
     N = sys.N
+    L = sys.L
     S = sys.S
     T = sys.T
-    L = sys.L
+    load = sys.load
 
+    # Build admittance matrix and maxFlow
     Y = build_admittance_matrix(N, L)
     B = imag(Y) # take susceptance matrix
     maxFlow = get_maxFlow(N, L)
 
-    # Extract variables from other submodules
-    THETA = mod[:THETA]
+    # Get slack bus
+    slack_bus = N[ findfirst([n.slack == true for n in N]) ]
 
-    # DC Power flow transfered from a bus
+    # Define bus angle variables
+    @variable(mod, THETA[N, S, T]) 
+
+    # Fix bus angle of slack bus
+    fix.(THETA[slack_bus, S, T], 0)
+
+    # Extracting expressions from other submodules
+    eGenAtBus = mod[:eGenAtBus]
+    
+    # DC Power flow transfered from each bus
     @expression(mod, eFlowAtBus[n ∈ N, s ∈ S, t ∈ T], 
                     sum(B[n.bus_id, m.bus_id] * (THETA[n, s, t] - THETA[m, s, t]) for m in N))
 
-    # Maximum power transfered by bus
+    # Maximum power transfered at each bus
     @constraint(mod, cMaxFlowAtBus[n ∈ N, s ∈ S, t ∈ T],
                     -maxFlow[n.bus_id] ≤ eFlowAtBus[n, s, t] ≤ maxFlow[n.bus_id])
 
-end
+    # Power balance at each bus
+    @constraint(mod, cGenBalance[n ∈ N, s ∈ S, t ∈ T], 
+                    eGenAtBus[n, s, t] ≥ load[n.bus_id, s.sc_id, t.tp_id] + eFlowAtBus[n, s, t])    
 
-end # module Lines
+end
+   
+end # module Transmission
