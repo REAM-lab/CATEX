@@ -87,13 +87,29 @@ This function returns a csv file with the numerical solution of a JuMP variable 
     - A csv file in the specified directory.
 """
 function to_Df(var_name:: JuMP.Containers.DenseAxisArray, header:: Vector, outputs_dir:: String, filename:: String; print_csv = true)
-    dir_file = joinpath(outputs_dir, filename)
+    
+    dir_file = joinpath(outputs_dir, filename) # directory to save the csv file
+
+    # Transform DenseAxisArray into DataFrame.
+    # The argument 'value' is a reserved word in JuMP to get the numerical value of a variable.
+    # The argument 'var_name' is the name of the variable defined in the JuMP model. For example, GEN, CAP.
+    # The argument 'header' is a vector with the headers of the dataframe. It should be consistent with the dimensions.
     df = DataFrame(Containers.rowtable(value, var_name; header = header))
+
+    # The following loop is to replace the columns of the df with the actual IDs.
+    # If we omit this loop, the columns will contain the entire struct, e.g., Timepoint(tp_id="tp1", period_id="p1", weight=1.0)
+    # Actually, it is useful to have the entire struct in each cell of the Dataframe, because we can access its bus_id, and then make another dataframe.
+    for h in header[begin:end-1]
+    df[!, h] = getfield.(df[!, h], h)
+    end
+
+    # Print csv file. By default, it is set to true.
     if print_csv
         CSV.write(dir_file, df)
         println(" > $filename printed.")
     end
-    return df
+
+    return df # return the dataframe if needed
 end
 
 

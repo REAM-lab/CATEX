@@ -17,7 +17,7 @@ include("Policies.jl")
 using .Utils, .Scenarios, .Transmission, .Generators, .EnergyStorages, .Timepoints, .Policies
 
 # Export the functions we want users to be able to access easily
-export init_system, init_policies, build_stochastic_capex_model
+export init_system, init_policies, solve_stochastic_capex_model, run_stocapex
 export System, Scenario, Bus, Load, Generator, CapacityFactor, Line, EnergyStorage, Timepoint, Policy
 
 """
@@ -46,10 +46,14 @@ end
 """
 This function defines how to display the System struct in the REPL or when printed in Julia console.
 """
-function Base.show(io::IO, ::MIME"text/plain", s::System)
-    println(io, "System:")
-    println(io, " Scenarios (sc) = ", names(s.sc, 1))
-    #print(io, " y = ", p.y)
+function Base.show(io::IO, ::MIME"text/plain", sys::System)
+    println(io, "CATEX System:")
+    println(io, "├ N (buses) = ", names(sys.N, 1))
+    println(io, "├ L (lines) = ", names(sys.L, 1))
+    println(io, "├ G (generators) = ", names(sys.G, 1))
+    println(io, "├ E (energy storages) = ", names(sys.E, 1))
+    println(io, "├ S (scenarios) = ", names(sys.S, 1))
+    println(io, "└ T (timepoints) = ", names(sys.T, 1))
 end
 
 """
@@ -87,7 +91,7 @@ end
 """
 Solves a stochastic capacity expansion problem.
 """ 
-function build_stochastic_capex_model(sys, pol    ;main_dir = pwd(), 
+function solve_stochastic_capex_model(sys, pol    ;main_dir = pwd(), 
                                     solver = Mosek.Optimizer,
                                     print_model = false)
 
@@ -97,22 +101,87 @@ function build_stochastic_capex_model(sys, pol    ;main_dir = pwd(),
     # Create JuMP model
     mod = Model(optimizer_with_attributes(solver))
 
+    print("> Generator vars and constraints ... ")
+    tep = @elapsed Generators.stochastic_capex_model!(mod, sys, pol)
+    println(" ok [$(round(tep, digits = 3)) seconds].")
 
-    print("> Generator constraints ... ")
-    timing = @elapsed Generators.stochastic_capex_model!(mod, sys, pol)
-    println(" ok, $(round(timing, digits = 3)) seconds.")
+    print("> Transmission vars and constraints ... ")
+    tep = @elapsed Transmission.stochastic_capex_model!(mod, sys, pol)
+    println(" ok [$(round(tep, digits = 3)) seconds].")
 
-    print("> Transmission constraints ... ")
-    Transmission.stochastic_capex_model!(mod, sys, pol)
-    print(" ok.\n")
+    print("> Policy vars and constraints ... ")
+    tep = @elapsed Policies.stochastic_capex_model!(mod, sys, pol)
+    println(" ok [$(round(tep, digits = 3)) seconds].")
 
-    print("> Policy constraints ... ")
-    Policies.stochastic_capex_model!(mod, sys, pol)
-    print(" ok.\n")
+    @objective(mod, Min, mod[:eTotalCosts])
 
+    # Print model to a text file if print_model==true. 
+    # By default, it is print_model is false.
+    # Useful for debugging purposes.
+    if print_model
+        filename = "model.txt"
+        println(" > $filename printed")
+        open(joinpath(main_dir, "outputs", filename), "w") do f
+            println(f, m)
+        end
+    end
 
+    println("> JuMP model completed. Starting optimization: ")
+                    
+    optimize!(mod)
 
+    print("\n")
 
+    mod_status = termination_status(mod)
+    mod_obj = round(value(mod[:eTotalCosts]); digits=3) 
+    println("> Optimization status: $mod_status")
+    println("> Objective function value: $(round(mod_obj, digits=3))")
+    return mod
+
+end
+
+"""
+Exports results of the stochastic capacity expansion model to CSV files.
+"""
+function print_stochastic_capex_results(mod:: Model; main_dir = pwd()) 
+
+    # Define the outputs directory
+    outputs_dir = joinpath(main_dir, "outputs")
+
+    Generators.toCSV_stochastic_capex(mod, outputs_dir)
+#=
+    # Set outputs_dir variable
+    outputs_dir = joinpath(main_dir, "outputs")
+
+    println("> Printing files in $outputs_dir")
+    to_Df(GEN, [:generation_project, :timepoint, :DispatchGen_MW], outputs_dir , "dispatch.csv")
+    to_Df(CAP, [:generation_project, :GenCapacity], outputs_dir , "gen_cap.csv")
+    to_Df(GENV, [:generation_project, :scenario, :timepoint, :DispatchGen_MW], outputs_dir , "v_dispatch.csv")
+    to_Df(CAPV, [:generation_project, :scenario, :GenCapacity], outputs_dir , "v_gen_cap.csv")
+    
+    filename = "costs_itemized.csv"
+    varcost_data = to_Df(eTimeSeriesVariableCosts, [:timeseries, :cost], outputs_dir , "variable_costs.csv"; print_csv=false)
+    insertcols!(varcost_data, 1, :component .=> "variable_costs")
+    more_costs =  DataFrame(component  = ["fixed_costs", "total_costs"], 
+                            timeseries = ["all", "all"], 
+                            cost = [value(eFixedCosts), value(eTotalCosts)]) 
+    costs_itemized = vcat(varcost_data, more_costs)
+    CSV.write(joinpath(outputs_dir, filename), costs_itemized)
+    println(" > $filename printed.")
+=#
+end
+
+function run_stocapex(; main_dir = pwd(), 
+                             solver = Mosek.Optimizer,
+                             print_model = false)
+    
+    sys = init_system(main_dir = main_dir)
+    pol = init_policies(main_dir = main_dir)
+    mod = solve_stochastic_capex_model(sys, pol; main_dir = main_dir, solver = solver)
+    print_stochastic_capex_results(mod; main_dir = main_dir)
+
+    return sys, pol, mod
+end
 #= 
     # Get scenarios
     S = sys.sc
@@ -217,9 +286,6 @@ function build_stochastic_capex_model(sys, pol    ;main_dir = pwd(),
     println("> Optimization status: $mod_status")
     println("> Objective function: $mod_obj")
 =#
-    return mod
-
-end
 
 
 #=

@@ -10,7 +10,7 @@ using NamedArrays, JuMP
 using ..Utils
 
 # Export variables and functions
-export Generator, load_data, stochastic_capex_model!
+export Generator, load_data, stochastic_capex_model!, toCSV_stochastic_capex
 
 """
 Generator represents a generation project or existing generator in the power system.
@@ -158,6 +158,14 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
     # Total costs
     @expression(mod, eTotalCosts,
                     sum(eVariableCosts[t] for t ∈ T) + eFixedCosts)
+end
+
+
+function toCSV_stochastic_capex(mod:: Model, outputs_dir:: String)
+    to_Df(mod[:GEN], [:gen_id, :timepoint, :DispatchGen_MW], outputs_dir , "dispatch.csv")
+    #to_Df(mod[:CAP], [:generation_project, :GenCapacity], outputs_dir , "gen_cap.csv")
+    #to_Df(mod[:vGEN], [:generation_project, :scenario, :timepoint, :DispatchGen_MW], outputs_dir , "v_dispatch.csv")
+    #to_Df(mod[:vCAP], [:generation_project, :scenario, :GenCapacity], outputs_dir , "v_gen_cap.csv")
 end
 
 end # module Generators
