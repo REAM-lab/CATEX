@@ -23,22 +23,5 @@ struct Scenario
     prob:: Float64
 end
 
-"""
-Load scenario data from a CSV file and return it as a NamedArray of Scenario structures.
-"""
-function load_data(inputs_dir:: String):: NamedArray{Scenario}
-
-    # Get a list of Scenario structures
-    scen = to_Structs(Scenario, inputs_dir, "scenarios.csv")
-
-    # Get a list of the scenario IDs
-    S = getfield.(scen, :sc_id)
-
-    # Transform scen into NamedArray, so we can access scenarios by their IDs
-    scen = NamedArray(scen, (S))
-
-    return scen
-
-end
 
 end # module Scenarios

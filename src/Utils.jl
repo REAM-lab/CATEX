@@ -6,25 +6,24 @@ using DataFrames, JuMP, CSV, NamedArrays
 # Export variables and functions
 export to_structs, to_multidim_array, to_Df
 
-function to_structs(structure::DataType, file_dir:: String; create_idx = true):: Vector{structure}
+function to_structs(structure::DataType, file_dir:: String; add_id_col = true):: Vector{structure}
     struct_names = fieldnames(structure)
     struct_types = fieldtypes(structure)
 
-    if create_idx
-        first_twolines = CSV.read(file_dir; limit=1)
-        insertcols!(first_twolines, 1, :idx => 1:nrow(first_twolines))
-    else
-        first_twolines = CSV.File(file_dir; limit=1)
-    end
-
+    first_twolines = CSV.read(file_dir, DataFrame; limit=1)
     csv_header = Tuple(propertynames(first_twolines))
 
-    @assert csv_header == struct_names """Column names of $file_dir does not match the fields of the structure $structure."""
+    if add_id_col
+        csv_header = (csv_header..., :id) 
+    end
+
+    @assert csv_header == struct_names """Incorrect column names of $file_dir.
+                                          Column names must be $struct_names"""
 
     df = CSV.read(file_dir, DataFrame; types=Dict(zip(struct_names, struct_types)))
 
-    if create_idx
-        insertcols!(df, 1, :idx => 1:nrow(df))
+    if add_id_col
+        insertcols!(df, 1, :id => 1:nrow(df))
     end
 
     cols = Tuple(df[!, col] for col in names(df))

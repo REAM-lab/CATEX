@@ -7,7 +7,7 @@ using CSV, DataFrames, JuMP
 using ..Utils
 
 # Export variables and functions
-export Policy, load_data, stochastic_capex_model!
+export Policy, load_policies, stochastic_capex_model!
 
 
 """
@@ -23,7 +23,7 @@ struct Policy
     # max_CO2_emissions:: Float64
 end
 
-function load_data(inputs_dir:: String):: Policy
+function load_policies(inputs_dir:: String):: Policy
 
     # Read policies from CSV files
     # It is suggested to keep policies in different files as they can have different formats
@@ -42,15 +42,15 @@ end
 
 function stochastic_capex_model!(mod:: Model, sys, pol)
 
-    N = sys.N
-    S = sys.S
-    T = sys.T
+    N = @views sys.N
+    S = @views sys.S
+    T = @views sys.T
 
     # Add policies
     θlim = pol.max_diffangle
 
     # Extract variables from other submodules
-    THETA = mod[:THETA]
+    THETA = @views mod[:THETA]
 
     # Maximum power transfered by bus
     @constraint(mod, cAngleLimit[n ∈ N, s ∈ S, t ∈ T],

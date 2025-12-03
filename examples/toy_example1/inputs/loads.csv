@@ -1,4 +1,4 @@
-﻿bus_id,sc_id,tp_id,load
+﻿bus_name,sc_name,tp_name,load
 sd,low,1,4
 sd,low,2,5
 sd,low,3,6

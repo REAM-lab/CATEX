@@ -24,7 +24,8 @@ Bus represents a bus or node in the power system.
          At least there must be one slack bus in the system.
 """
 struct Bus
-    bus_id:: String
+    id:: Int64
+    name:: String
     kv:: Float64
     type:: String
     lat:: Float64
@@ -48,9 +49,9 @@ Load represents the load demand at a specific bus, scenario, and timepoint.
 - load: load demand in megawatts (MW)
 """
 struct Load
-    bus_id:: String
-    sc_id:: String
-    tp_id:: String
+    bus_name:: String
+    sc_name:: String
+    tp_name:: String
     load:: Float64
 end
 
@@ -67,7 +68,8 @@ Line is a π-model transmission line connecting two buses in the power system.
 - b: susceptance of the shunt at one extreme of the line (p.u.)
 """
 struct Line
-    line_id:: String
+    id:: Int64
+    name:: String
     from_bus:: String
     to_bus:: String
     rate:: Float64
@@ -80,38 +82,20 @@ end
 """
 Load bus data from a CSV file and return it as a NamedArray of Bus structures.
 """
-function load_data(inputs_dir:: String):: Tuple{NamedArray{Bus}, NamedArray{Union{Missing, Float64}}, NamedArray{Line}}
-
-    # Get a list of Bus structures
-    buses = to_Structs(Bus, inputs_dir, "buses.csv")
-
-    # Get a list of the bus IDs
-    N = getfield.(buses, :bus_id)
-
-    # Transform buses into NamedArray, so we can access buses by their IDs
-    buses = NamedArray(buses, (N))
+function process_load(inputs_dir:: String):: NamedArray{Union{Missing, Float64}}
 
     # Load load data
-    l = to_Structs(Load, inputs_dir, "loads.csv")
+    load = to_structs(Load, joinpath(inputs_dir,"loads.csv"))
     
     # Transform load data into a multidimensional NamedArray
-    load = to_multidim_NamedArray(l, [:bus_id, :sc_id, :tp_id], :load)
+    load = to_multidim_array(load, [:bus_name, :sc_name, :tp_name], :load)
 
-    # Get a list of Line structures
-    lines = to_Structs(Line, inputs_dir, "lines.csv")
-
-    # Get a list of the line IDs
-    L = getfield.(lines, :line_id)
-
-    # Transform lines into NamedArray, so we can access lines by their IDs
-    lines = NamedArray(lines, (L))
-
-    return buses, load, lines
+    return load
 end
 
 """
 `build_admittance_matrix(N:: Vector{String}, lines:: Vector{Any}; include_shunts=false) 
-                         :: NamedArray{ComplexF64}`
+                         :: Matrix{ComplexF64}`
 
 This function builds the admittance matrix of any power system.
 
@@ -126,7 +110,11 @@ This function builds the admittance matrix of any power system.
                       the admittance matrix.
 
 ## Returns:
-    - Y: a NamedArray that contains the admittance matrix. Y is commonly defined as a pure array, 
+    - Y: 
+
+    NamedArray(Y, (bus_names, bus_names), (:bus_name, :bus_name))
+    bus_names = getfield.(N, :bus_name)
+    a NamedArray that contains the admittance matrix. Y is commonly defined as a pure array, 
          but here we use a NamedArray, so the user can access entries of Y by two options:
          using strings like "san_diego", "lima", or numerical indices 1, 2 .. 
         for example: these combinations to access Y data work:
@@ -138,46 +126,32 @@ This function builds the admittance matrix of any power system.
 TODO: add hint type to the lines argument. We may need to import the Line Struct.
 
 """
-function build_admittance_matrix(N:: NamedArray{Bus}, lines; include_shunts=false) :: NamedArray{ComplexF64}
+function build_admittance_matrix(N:: Vector{Bus}, L:: Vector{Line}; include_shunts=false):: Matrix{ComplexF64}
 
     # Define admittance matrix (actually it is NamedArray)
     # Note: we opt to use a NamedArray so N does not have to be a vector of numbers
     #       then, the user has more flexibility to access the admittance matrix, for example, Y["sandiego", "lima"]
-    num_buses = length(N)
-    bus_ids = names(N, 1)
-    Y =  NamedArray( zeros(Complex, num_buses, num_buses), (bus_ids, bus_ids), (:bus_id, :bus_id))
+    Y = zeros(Complex, length(N), length(N))
     
-    for line in lines
-        # Calculate branch admittance
-        z = complex(line.r, line.x)
-        y = 1.0 / z
+    for line in L
+        # Calculate branch admittance and shunt admittance
+        z_branch = complex(line.r, line.x)
+        y_branch = 1.0 / z_branch
+        y_shunt = complex(line.g, line.b)
         
-        # Extract from_bus and to_bus from line instance
-        from_bus = line.from_bus
-        to_bus = line.to_bus
+        # Find ids of from_bus and to_bus from line instance
+        from_bus = findfirst(n -> n.bus_name == line.from_bus, N)
+        to_bus = findfirst(n -> n.bus_name == line.to_bus, N)
 
         # Off-diagonal elements. Y_ij = -y_ij
-        Y[from_bus, to_bus] -= y
-        Y[to_bus, from_bus] -= y
+        Y[from_bus, to_bus] -= y_branch
+        Y[to_bus, from_bus] -= y_branch
 
         # Diagonal elements. Note: Y_ii = y_1i + y2i + ... + yii + ...
-        Y[from_bus, from_bus] += y
-        Y[to_bus, to_bus] += y
-    end
+        y_at_bus = y_branch + include_shunts ? y_shunt : 0
+        Y[from_bus, from_bus] += y_at_bus + 
+        Y[to_bus, to_bus] += y_at_bus
 
-    if include_shunts
-        for line in lines
-            # Calculate shunt admittance 
-            y_shunt = complex(line.g, line.b)
-
-            # Extract bus 
-            from_bus = line.from_bus
-            to_bus = line.to_bus
-            
-            # Add shunt admittance to the current admittance matrix
-            Y[from_bus, from_bus] += y_shunt
-            Y[to_bus, to_bus] += y_shunt
-        end
     end
 
     return Y
@@ -191,33 +165,32 @@ end
             "lima"    => 1000
 
 """
-function get_maxFlow(N, lines):: NamedArray{Float64}
+function get_maxFlow(N:: Vector{Bus}, L:: Vector{Line}):: Vector{Float64}
 
-    num_buses = length(N)
-    bus_ids = names(N, 1)
-    maxFlow =  NamedArray( zeros(Float64, num_buses), (bus_ids), :bus_id )
+    maxFlow =  zeros(Float64, length(N))
 
-    for line in lines
-        # Extract from_bus and to_bus from line instance
-        from_bus = line.from_bus
-        to_bus = line.to_bus
+    for line in L
+        # Find ids of from_bus and to_bus from line instance
+        from_bus = findfirst(n -> n.bus_name == line.from_bus, N)
+        to_bus = findfirst(n -> n.bus_name == line.to_bus, N)
         rate = line.rate
         
         maxFlow[from_bus] += rate
         maxFlow[to_bus] += rate
 
     end
+
     return maxFlow
 end
 
 function stochastic_capex_model!(mod:: Model, sys, pol)
 
     # Extract system data
-    N = sys.N
-    L = sys.L
-    S = sys.S
-    T = sys.T
-    load = sys.load
+    N = @views sys.N
+    L = @views sys.L
+    S = @views sys.S
+    T = @views sys.T
+    load = @views sys.load
 
     # Build admittance matrix and maxFlow
     Y = build_admittance_matrix(N, L)
@@ -225,28 +198,30 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
     maxFlow = get_maxFlow(N, L)
 
     # Get slack bus
-    slack_bus = N[ findfirst([n.slack == true for n in N]) ]
+    slack_bus_id = findfirst(n -> n.slack == true, N)
 
     # Define bus angle variables
     @variable(mod, THETA[N, S, T]) 
 
     # Fix bus angle of slack bus
-    fix.(THETA[slack_bus, S, T], 0)
+    fix.(THETA[slack_bus_id, S, T], 0)
 
     # Extracting expressions from other submodules
     eGenAtBus = mod[:eGenAtBus]
+    eNetChargeAtBus = mod[:eNetChargeAtBus]
     
     # DC Power flow transfered from each bus
     @expression(mod, eFlowAtBus[n ∈ N, s ∈ S, t ∈ T], 
-                    sum(B[n.bus_id, m.bus_id] * (THETA[n, s, t] - THETA[m, s, t]) for m in N))
+                    sum(B[n.id, m.id] * (THETA[n, s, t] - THETA[m, s, t]) for m in N))
 
     # Maximum power transfered at each bus
     @constraint(mod, cMaxFlowAtBus[n ∈ N, s ∈ S, t ∈ T],
-                    -maxFlow[n.bus_id] ≤ eFlowAtBus[n, s, t] ≤ maxFlow[n.bus_id])
+                    -maxFlow[n.id] ≤ eFlowAtBus[n, s, t] ≤ maxFlow[n.id])
 
     # Power balance at each bus
     @constraint(mod, cGenBalance[n ∈ N, s ∈ S, t ∈ T], 
-                    eGenAtBus[n, s, t] ≥ load[n.bus_id, s.sc_id, t.tp_id] + eFlowAtBus[n, s, t])    
+                    eGenAtBus[n, s, t] + eNetChargeAtBus[n, s, t] ≥ 
+                    load[n.name, s.name, t.name] + eFlowAtBus[n, s, t])    
 
 end
 

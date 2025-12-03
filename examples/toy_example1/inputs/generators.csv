@@ -1,4 +1,4 @@
-﻿gen_id,gen_tech,bus_id,c2,c1,c0,invest_cost,exist_cap,cap_limit,var_om_cost
+﻿name,tech,bus_name,c2,c1,c0,invest_cost,exist_cap,cap_limit,var_om_cost
 sun_lim,solar,lima,1,2,0,1,1,20,0.5
 winds,wind,lima,2,3,4,2,0,20,0.5
 dirt,coal,sd,2,3,4,3,0,20,2

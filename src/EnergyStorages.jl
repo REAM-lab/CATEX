@@ -41,31 +41,58 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
     T = @views sys.T
     S = @views sys.S
 
-    Nids = getfield.(N, :bus_id)
-
-    E_AT_BUS = [filter(e -> e.bus_id == n, E) for n in Nids]
+    E_AT_BUS = [filter(e -> e.bus_name == n.bus_name, E) for n in N]
 
     # Define generation variables
     @variables(mod, begin
             vDISCHA[E, S, T] ≥ 0
             vCHARGE[E, S, T] ≥ 0       
             vSOC[E, S, T] ≥ 0
+            vPCAP[E, S] ≥ 0  
+            vECAP[E, S] ≥ 0  
     end)
 
     # Define constraints for energy storage systems
     @constraint(mod, cMaxCharge[e ∈ E, s ∈ S, t ∈ T], 
-                        vCHARGE[e, s, t] ≤ e.max)
+                        vCHARGE[e, s, t] ≤ vPCAP[e, s])
     
+    @constraint(mod, cMaxDischarge[e ∈ E, s ∈ S, t ∈ T], 
+                        vDISCHA[e, s, t] ≤ vPCAP[e, s])
+    
+    E_fixdur = filter(e -> e.duration > 0, E)
+
+    if !isempty(E_fixdur)
+    @constraint(mod, cFixEnergyPowerRatio[e ∈ E, s ∈ S, t ∈ T], 
+                        vECAP[e, s] ==  e.duration * vPCAP[e, s] )
+    end
+
+    # Minimum power capacity of storage
+    @constraint(mod, cFixPowerCapStor[e ∈ E, s ∈ S], 
+                    vPCAP[e, s] ≥ e.exist_power_cap)
+
+    # Minimum energy capacity of storage
+    @constraint(mod, cMaxEnergyCapStor[e ∈ E, s ∈ S], 
+                    vECAP[e, s] ≥ g.exist_energy_cap)
+
     # Energy capacity must be less ×4 the power capacity
-    #@constraint(mod, cMaxStateOfCharge[e ∈ E, s ∈ S, t ∈ T], 
-    #                    vSOC[e, s, t] ≤ e.duration * e.exist_power_cap)
-    
+    @constraint(mod, cMaxSOC[e ∈ E, s ∈ S, t ∈ T], 
+                        vSOC[e, s, t] ≤ vECAP[e, s])
+
     # SOC in the next time is a function of SOC in the pervious time
     # with circular wrapping for the first and last t ∈ P_i
     
-    prev = [idx == 1 ? T[end] : T[idx - 1] for (idx,_) in enumerate(T)]
+    prev = [id == 1 ? T[end] : T[id - 1] for (id,_) in enumerate(T)]
 
     @constraint(mod, cStateOfCharge[e ∈ E, s ∈ S, t ∈ T],
-                        vSOC[e, s, t] == vSOC[e, s, prev[t.idx]] + vCHARGE[e, s, t]*e.charge_effic - vDISCHA[e, s, t]*1/e.discha_effic)
+                        vSOC[e, s, t] == vSOC[e, s, prev[t.id]] 
+                                        + vCHARGE[e, s, t]*e.charge_effic 
+                                        - vDISCHA[e, s, t]*1/e.discha_effic)
+
+    # Power generation by bus
+    @expression(mod, eNetChargeAtBus[n ∈ N, s ∈ S, t ∈ T], 
+                    sum(vCHARGE[e, s, t] for e ∈ E_AT_BUS[n.idx]) 
+                    - sum(vDISCHA[e, s, t] for e ∈ E_AT_BUS[n.idx]) )
+
+    
 end
 end # module EnergyStorage

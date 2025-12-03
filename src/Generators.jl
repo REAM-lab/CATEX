@@ -27,10 +27,10 @@ Generator represents a generation project or existing generator in the power sys
 - var_om_cost: variable operation and maintenance cost (USD/MW)
 """
 struct Generator
-    idx:: Int64
-    gen_id:: String
-    gen_tech:: String
-    bus_id:: String
+    id:: Int64
+    name:: String
+    tech:: String
+    bus_name:: String
     c2:: Float64
     c1:: Float64
     c0:: Float64
@@ -50,34 +50,22 @@ at a specific scenario and timepoint.
 - capacity_factor: capacity factor (between 0 and 1)
 """
 struct CapacityFactor
-    gen_id:: String
-    sc_id:: String
-    tp_id:: String
+    gen_name:: String
+    sc_name:: String
+    tp_name:: String
     capacity_factor:: Float64
 end
-
-struct CapacityFactorIdx
-    gen_idx:: Int64
-    sc_idx:: Int64
-    tp_idx:: Int64
-    capacity_factor:: Float64
-end
-
 
 """
 Load generator data from a CSV file and return it as a NamedArray of Generator structures.
 """
-function process_cf(G:: Vector{Generator}, S, T, dir_file)
+function process_cf(dir_file)
 
     # Load capacity factor data
-    cf = to_structs(CapacityFactor, dir_file)
-
-    cf = [CapacityFactorIdx( findfirst(g -> g.gen_id == c.gen_id, G), 
-                             findfirst(s -> s.sc_id == c.sc_id, S), 
-                             findfirst(s -> s.sc_id == c.sc_id, S), c.capacity_factor)  for c in cf]
+    cf = to_structs(CapacityFactor, dir_file; add_id_col = false)
 
     # Transform capacity factor data into a multidimensional NamedArray
-    cf = to_multidim_NamedArray(cf, [:gen_idx, :sc_idx, :tp_idx], :capacity_factor)
+    cf = to_multidim_NamedArray(cf, [:gen_name, :sc_name, :tp_name], :capacity_factor)
 
     return cf
 end
@@ -95,16 +83,16 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
         Power generation and capacity of these generators are considered random variables 
         in the second-stage of the stochastic problem.
     """
-    GV = G[ names(cf, 1) ]
+    GV = filter(g -> g.name in names(cf, 1), G)
 
     """
     - GN is a vector of instances of generators without capacity factor profiles.
       The power generation and capacity are considered as part of 
       first-stage of the stochastic problem.
     """
-    GN = G[ setdiff( getfield.(G, :gen_id) , getfield.(GV, :gen_id) )]
+    GN = setdiff( G, GV )
 
-    G_AT_BUS = [filter(g -> g.bus_id == n.bus_id, G) for n in N]
+    G_AT_BUS = [filter(g -> g.bus_name == n.bus_name, G) for n in N]
     GV_AT_BUS= intersect.(G_AT_BUS, fill(GV, length(N)))  
     GN_AT_BUS = intersect.(G_AT_BUS, fill(GN, length(N)))    
     
@@ -135,7 +123,7 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
                     vGEN[g, t] ≤ vCAP[g])
 
     @constraint(mod, cMaxGenVar[g ∈ GV, s ∈ S, t ∈ T], 
-                    vGEN[g, s, t] ≤ cf[g.idx, s.idx, t.idx]*vCAP[g, s])
+                    vGEN[g, s, t] ≤ cf[g.gen_id, s.sc_id, t.tp_id]*vCAP[g, s])
 
     # Power generation by bus
     @expression(mod, eGenAtBus[n ∈ N, s ∈ S, t ∈ T], 

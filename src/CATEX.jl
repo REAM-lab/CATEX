@@ -29,25 +29,24 @@ export System, Scenario, Bus, Load, Generator, CapacityFactor, Line, EnergyStora
 """
 System represents the entire power system for the stochastic capacity expansion problem.
 # Fields:
-- sc: Vector containing instances of Scenario structure
-- buses: Vector containing instances of Bus structure
+- S: Vector containing instances of Scenario structure
+- N: Vector containing instances of Bus structure
 - loads: multidimensional array of load data
-- gen: Vector containing instances of Generator structure
+- G: Vector containing instances of Generator structure
 - cf: multidimensional array of capacity factors data
-- line: Vector containing instances of Line structure
-- es: Vector containing instances of EnergyStorage structure
-- tp: Vector containing instances of Timepoint structure
+- L: Vector containing instances of Line structure
+- E: Vector containing instances of EnergyStorage structure
+- T: Vector containing instances of Timepoint structure
 """
 struct System
     S:: Vector{Scenario}
     T:: Vector{Timepoint}
     N:: Vector{Bus}
-    load:: Array{Union{Missing, Float64y}}
+    load:: NamedArray{Union{Missing, Float64}}
     G:: Vector{Generator}
-    cf:: Array{Union{Missing, Float64}}
+    cf:: NamedArray{Union{Missing, Float64}}
     L:: Vector{Line}
     E:: Vector{EnergyStorage}
-
 end
 
 """
@@ -55,12 +54,12 @@ This function defines how to display the System struct in the REPL or when print
 """
 function Base.show(io::IO, ::MIME"text/plain", sys::System)
     println(io, "CATEX System:")
-    println(io, "├ N (buses) = ", getfield.(sys.N, :bus_id))
-    println(io, "├ L (lines) = ", getfield.(sys.L, :line_id))
-    println(io, "├ G (generators) = ", getfield.(sys.G, :gen_id))
-    println(io, "├ E (energy storages) = ", getfield.(sys.E, :es_id))
-    println(io, "├ S (scenarios) = ", getfield.(sys.S, :sc_id))
-    println(io, "└ T (timepoints) = ", getfield.(sys.T, :tp_id))
+    println(io, "├ N (buses) = ", getfield.(sys.N, :name))
+    println(io, "├ L (lines) = ", getfield.(sys.L, :name))
+    println(io, "├ G (generators) = ", getfield.(sys.G, :name))
+    println(io, "├ E (energy storages) = ", getfield.(sys.E, :name))
+    println(io, "├ S (scenarios) = ", getfield.(sys.S, :name))
+    println(io, "└ T (timepoints) = ", getfield.(sys.T, :name))
 end
 
 """
@@ -84,8 +83,8 @@ function init_system(;main_dir = pwd())
     G = to_structs(Generator, joinpath(inputs_dir, "generators.csv"))
     E = to_structs(EnergyStorage, joinpath(inputs_dir, "energy_storages.csv"))
 
-    cf = process_cf(G, S, T, joinpath(inputs_dir, "capacity_factors.csv"))
-    load = process_load(N, S, T, joinpath(inputs_dir, "loads.csv"))
+    cf = process_cf(joinpath(inputs_dir, "capacity_factors.csv"))
+    load = process_load(joinpath(inputs_dir, "loads.csv"))
 
     # Create instance of System struct
     sys = System(S, T, N, load, G, cf, L, E)
@@ -97,11 +96,9 @@ end
 function init_policies(;main_dir = pwd())   
 
     print("> Initializing policies data...")
-    # Define the inputs directory
-    inputs_dir = joinpath(main_dir, "inputs")
-
+    
     # Create instance of Policy struct
-    pol = Policies.load_data(inputs_dir)
+    pol = load_policies(joinpath(main_dir, "inputs"))
 
     println("ok.")
     return pol
