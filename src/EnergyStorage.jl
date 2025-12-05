@@ -95,16 +95,25 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
                     + sum(vDISCHA[e, s, t] for e ∈ E_AT_BUS[n.id]) )
 
     # 
-    @expression(mod, eStorVariableCosts,
-                     1/length(S)*(sum(s.prob * t.duration * e.var_om_cost * vCHARGE[e, s, t] for e ∈ E, s ∈ S, t ∈ T) ) ) 
+    @expression(mod, eStorCostPerTp[t ∈ T],
+                     1/length(S)*(sum(s.prob * e.var_om_cost * vCHARGE[e, s, t] for e ∈ E, s ∈ S) ) )
+    
+    eCostPerTp =  @views mod[:eCostPerTp]
+    unregister(mod, :eCostPerTp)
+    @expression(mod, eCostPerTp[t ∈ T], eCostPerTp[t] + eStorCostPerTp[t])
 
+                     
     # Fixed costs 
-	@expression(mod, eStorFixedCosts,
+	@expression(mod, eStorCostPerPeriod,
                     1/length(S)*sum( (s.prob * e.invest_cost * vPCAP[e, s]) for e ∈ E, s ∈ S ))
 
+    eCostPerPeriod =  @views mod[:eCostPerPeriod]
+    unregister(mod, :eCostPerPeriod)
+    @expression(mod, eCostPerPeriod, eCostPerPeriod + eStorCostPerPeriod)
+                
     # Total costs
-    @expression(mod, eStorTotalCosts,
-                        eStorVariableCosts + eStorFixedCosts)
+    #@expression(mod, eStorTotalCosts,
+    #                    eStorVariableCosts + eStorFixedCosts)
     
 end
 

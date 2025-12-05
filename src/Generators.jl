@@ -132,20 +132,33 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
 
     
     # The weighted operational costs of running each generator
-    @expression(mod, eGenVariableCosts,
-                    (sum(t.duration * g.var_om_cost * vGEN[g, t] 
-                        + t.duration * g.c1 * vGEN[g, t] for g ∈ GN, t ∈ T) +
-                    + 1/length(S)*(sum(s.prob * t.duration * g.c1 * vGENV[g, s, t] 
-                                     + s.prob * t.duration * g.var_om_cost * vGENV[g, s, t] for g ∈ GV, s ∈ S, t ∈ T) ) ) )
+    @expression(mod, eGenCostPerTp[t ∈ T],
+                        sum(g.c1 * vGEN[g, t] + g.var_om_cost * vGEN[g, t] for g ∈ GN) + 
+                        1/length(S) * sum(s.prob * (g.c1 * vGENV[g, s, t] + g.var_om_cost * vGENV[g, s, t]) for g ∈ GV, s ∈ S))
+
+    eCostPerTp =  @views mod[:eCostPerTp]
+    unregister(mod, :eCostPerTp)
+    @expression(mod, eCostPerTp[t ∈ T], eCostPerTp[t] + eGenCostPerTp[t])
+
+
+    #                (sum(t.duration * g.var_om_cost * vGEN[g, t] 
+    #                    + t.duration * g.c1 * vGEN[g, t] for g ∈ GN, t ∈ T) +
+    #                + 1/length(S)*(sum(s.prob * t.duration * g.c1 * vGENV[g, s, t] 
+    #                                 + s.prob * t.duration * g.var_om_cost * vGENV[g, s, t] for g ∈ GV, s ∈ S, t ∈ T) ) ) )
+
 
     # Fixed costs 
-	@expression(mod, eGenFixedCosts,
+    @expression(mod, eGenCostPerPeriod,
                     sum(g.invest_cost * vCAP[g] for g ∈ GN) 
-                    + 1/length(S)*sum( (s.prob * g.invest_cost * vCAPV[g, s]) for g ∈ GV, s ∈ S ))
+                    + 1/length(S) * sum( (s.prob * g.invest_cost * vCAPV[g, s]) for g ∈ GV, s ∈ S ))
+
+    eCostPerPeriod =  @views mod[:eCostPerPeriod]
+    unregister(mod, :eCostPerPeriod)
+    @expression(mod, eCostPerPeriod, eCostPerPeriod + eGenCostPerPeriod)
 
     # Total costs
-    @expression(mod, eGenTotalCosts,
-                        eGenVariableCosts + eGenFixedCosts)
+    #@expression(mod, eGenTotalCosts,
+    #                    eGenVariableCosts + eGenFixedCosts)
 end
 
 

@@ -120,6 +120,12 @@ function solve_stochastic_capex_model(sys, pol    ;main_dir = pwd(),
     # Create JuMP model
     mod = Model(optimizer_with_attributes(solver))
 
+    # Initialize Costs for a period
+    @expression(mod, eCostPerPeriod, 0)
+
+    # Initialize Costs for a timepoint
+    @expression(mod, eCostPerTp[t ∈ sys.T], 0)
+
     print("> Generator vars and constraints ... ")
     tep = @elapsed Generators.stochastic_capex_model!(mod, sys, pol)
     println(" ok [$(round(tep, digits = 3)) seconds].")
@@ -136,8 +142,12 @@ function solve_stochastic_capex_model(sys, pol    ;main_dir = pwd(),
     tep = @elapsed Policies.stochastic_capex_model!(mod, sys, pol)
     println(" ok [$(round(tep, digits = 3)) seconds].")
 
-    @expression(mod, eTotalCosts, mod[:eGenTotalCosts] + mod[:eStorTotalCosts])
-    @objective(mod, Min, eTotalCosts)
+    print("> Objective function ... ")
+    tep = @elapsed @expression(mod, eTotalCost, sum(mod[:eCostPerTp][t]*t.weight for t in sys.T) 
+                                                    + mod[:eCostPerPeriod])
+    println(" ok [$(round(tep, digits = 3)) seconds].")
+
+    @objective(mod, Min, eTotalCost)
 
     # Print model to a text file if print_model==true. 
     # By default, it is print_model is false.
@@ -157,9 +167,9 @@ function solve_stochastic_capex_model(sys, pol    ;main_dir = pwd(),
     print("\n")
 
     mod_status = termination_status(mod)
-    mod_obj = round(value(mod[:eTotalCosts]); digits=3) 
+    mod_obj = round(value(eTotalCost); digits=3) 
     println("> Optimization status: $mod_status")
-    println("> Objective function value: $(round(mod_obj, digits=3))")
+    println("> Objective function value: $mod_obj")
     return mod
 
 end
