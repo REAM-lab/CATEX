@@ -143,11 +143,11 @@ function toCSV_stochastic_capex(sys, pol, mod:: Model, outputs_dir:: String)
     CSV.write(joinpath(outputs_dir, "storage_capacity.csv"), df_mix1)
 
     # Print cost expressions
-    filename = "storage_costs_itemized.csv"
-    costs =  DataFrame(component  = ["variable_costs", "fixed_costs", "total_costs"], 
-                            cost  = [value(mod[:eStorVariableCosts]), value(mod[:eStorFixedCosts]), value(mod[:eStorTotalCosts])]) 
-    CSV.write(joinpath(outputs_dir, filename), costs)
-    println(" > $filename printed.")
+    #filename = "storage_costs_itemized.csv"
+    #costs =  DataFrame(component  = ["variable_costs", "fixed_costs", "total_costs"], 
+    #                        cost  = [value(mod[:eStorVariableCosts]), value(mod[:eStorFixedCosts]), value(mod[:eStorTotalCosts])]) 
+    #CSV.write(joinpath(outputs_dir, filename), costs)
+    #println(" > $filename printed.")
     
 
 end

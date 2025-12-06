@@ -10,13 +10,13 @@ module CATEX
 using CSV, DataFrames, JuMP, MosekTools, NamedArrays
 
 # Define internal modules
-include("Utils.jl")
-include("Scenarios.jl")
-include("Transmission.jl")
-include("Generators.jl")
-include("EnergyStorage.jl")
-include("Timescales.jl")
-include("Policies.jl")
+include("utils.jl")
+include("scenarios.jl")
+include("transmission.jl")
+include("generators.jl")
+include("energy_storage.jl")
+include("timescales.jl")
+include("policies.jl")
 
 
 # Use internal modules

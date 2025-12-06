@@ -181,11 +181,12 @@ function toCSV_stochastic_capex(sys, pol, mod:: Model, outputs_dir:: String)
                         struct_fields=[:name, :name], csv_dir = joinpath(outputs_dir,"var_gen_cap.csv"))
 
     # Print cost expressions
-    filename = "gen_costs_itemized.csv"
-    costs =  DataFrame(component  = ["variable_costs", "fixed_costs", "total_costs"], 
-                            cost  = [value(mod[:eGenVariableCosts]), value(mod[:eGenFixedCosts]), value(mod[:eGenTotalCosts])]) 
-    CSV.write(joinpath(outputs_dir, filename), costs)
-    println(" > $filename printed.")
+    # TODO
+    #filename = "gen_costs_itemized.csv"
+    #costs =  DataFrame(component  = ["variable_costs", "fixed_costs", "total_costs"], 
+    #                        cost  = [value(mod[:eGenVariableCosts]), value(mod[:eGenFixedCosts]), value(mod[:eGenTotalCosts])]) 
+    #CSV.write(joinpath(outputs_dir, filename), costs)
+    #println(" > $filename printed.")
 
 end
 
