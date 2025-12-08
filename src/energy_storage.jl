@@ -37,7 +37,7 @@ struct EnergyStorageUnit
     duration:: Float64
 end
 
-function stochastic_capex_model!(mod:: Model, sys, pol)
+function stochastic_capex_model!(sys, mod:: Model)
 
     N = @views sys.N
     T = @views sys.T
@@ -112,12 +112,11 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
     @expression(mod, eCostPerPeriod, eCostPerPeriod + eStorCostPerPeriod)
                 
     # Total costs
-    #@expression(mod, eStorTotalCosts,
-    #                    eStorVariableCosts + eStorFixedCosts)
+    @expression(mod, eStorTotalCost, sum(eStorCostPerTp[t] * t.weight for t in T) + eStorCostPerPeriod)
     
 end
 
-function toCSV_stochastic_capex(sys, pol, mod:: Model, outputs_dir:: String)
+function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
 
     # Print vCHARGE AND vDISCHARGE 
     df1 = to_df(mod[:vCHARGE], [:es_name, :sc_name, :tp_name, :Charge_MW]; 
@@ -143,12 +142,13 @@ function toCSV_stochastic_capex(sys, pol, mod:: Model, outputs_dir:: String)
     CSV.write(joinpath(outputs_dir, "storage_capacity.csv"), df_mix1)
 
     # Print cost expressions
-    #filename = "storage_costs_itemized.csv"
-    #costs =  DataFrame(component  = ["variable_costs", "fixed_costs", "total_costs"], 
-    #                        cost  = [value(mod[:eStorVariableCosts]), value(mod[:eStorFixedCosts]), value(mod[:eStorTotalCosts])]) 
-    #CSV.write(joinpath(outputs_dir, filename), costs)
-    #println(" > $filename printed.")
-    
+    filename = "storage_costs_itemized.csv"
+    costs =  DataFrame(component  = ["CostPerTimepoint", "CostPerPeriod", "TotalCost"], 
+                            cost  = [   value(sum(mod[:eStorCostPerTp][t] * t.weight for t in sys.T)), 
+                                        value(mod[:eStorCostPerPeriod]), 
+                                        value(mod[:eStorTotalCost])]) 
+    CSV.write(joinpath(outputs_dir, filename), costs)
+    println(" > $filename printed.")
 
 end
 

@@ -78,10 +78,13 @@ Load bus data from a CSV file and return it as a NamedArray of Bus structures.
 function process_load(inputs_dir:: String):: NamedArray{Union{Missing, Float64}}
 
     # Load load data
-    load = to_structs(Load, joinpath(inputs_dir,"loads.csv"); add_id_col = false)
+    filename = "loads.csv"
+    print(" > $filename ...")
+    load = to_structs(Load, joinpath(inputs_dir, filename); add_id_col = false)
     
     # Transform load data into a multidimensional NamedArray
     load = to_multidim_array(load, [:bus_name, :sc_name, :tp_name], :load)
+    println(" ok.")
 
     return load
 end
@@ -176,7 +179,7 @@ function get_maxFlow(N:: Vector{Bus}, L:: Vector{Line}):: Vector{Float64}
     return maxFlow
 end
 
-function stochastic_capex_model!(mod:: Model, sys, pol)
+function stochastic_capex_model!(sys, mod:: Model)
 
     # Extract system data
     N = @views sys.N
@@ -219,7 +222,7 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
 
 end
 
-function toCSV_stochastic_capex(sys, pol, mod:: Model, outputs_dir:: String)
+function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
 
     # Set of line instances
     L = @views sys.L 

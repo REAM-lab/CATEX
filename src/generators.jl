@@ -62,15 +62,18 @@ Load generator data from a CSV file and return it as a NamedArray of Generator s
 function process_cf(inputs_dir:: String) :: NamedArray{Union{Missing, Float64}}
 
     # Load capacity factor data
-    cf = to_structs(CapacityFactor, joinpath(inputs_dir, "capacity_factors.csv"); add_id_col = false)
+    filename = "capacity_factors.csv"
+    print(" > $filename ...")
+    cf = to_structs(CapacityFactor, joinpath(inputs_dir, filename); add_id_col = false)
 
     # Transform capacity factor data into a multidimensional NamedArray
     cf = to_multidim_array(cf, [:gen_name, :sc_name, :tp_name], :capacity_factor)
 
+    println(" ok.")
     return cf
 end
 
-function stochastic_capex_model!(mod:: Model, sys, pol)
+function stochastic_capex_model!(sys, mod:: Model)
 
     S = @views sys.S
     T = @views sys.T
@@ -140,13 +143,6 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
     unregister(mod, :eCostPerTp)
     @expression(mod, eCostPerTp[t ∈ T], eCostPerTp[t] + eGenCostPerTp[t])
 
-
-    #                (sum(t.duration * g.var_om_cost * vGEN[g, t] 
-    #                    + t.duration * g.c1 * vGEN[g, t] for g ∈ GN, t ∈ T) +
-    #                + 1/length(S)*(sum(s.prob * t.duration * g.c1 * vGENV[g, s, t] 
-    #                                 + s.prob * t.duration * g.var_om_cost * vGENV[g, s, t] for g ∈ GV, s ∈ S, t ∈ T) ) ) )
-
-
     # Fixed costs 
     @expression(mod, eGenCostPerPeriod,
                     sum(g.invest_cost * vCAP[g] for g ∈ GN) 
@@ -156,13 +152,12 @@ function stochastic_capex_model!(mod:: Model, sys, pol)
     unregister(mod, :eCostPerPeriod)
     @expression(mod, eCostPerPeriod, eCostPerPeriod + eGenCostPerPeriod)
 
-    # Total costs
-    #@expression(mod, eGenTotalCosts,
-    #                    eGenVariableCosts + eGenFixedCosts)
+    @expression(mod, eGenTotalCost, sum(eGenCostPerTp[t] * t.weight for t in T) + eGenCostPerPeriod)
+
 end
 
 
-function toCSV_stochastic_capex(sys, pol, mod:: Model, outputs_dir:: String)
+function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     
     # Print vGEN variable solution
     to_df(mod[:vGEN], [:gen_name, :tp_name, :DispatchGen_MW]; 
@@ -181,12 +176,13 @@ function toCSV_stochastic_capex(sys, pol, mod:: Model, outputs_dir:: String)
                         struct_fields=[:name, :name], csv_dir = joinpath(outputs_dir,"var_gen_cap.csv"))
 
     # Print cost expressions
-    # TODO
-    #filename = "gen_costs_itemized.csv"
-    #costs =  DataFrame(component  = ["variable_costs", "fixed_costs", "total_costs"], 
-    #                        cost  = [value(mod[:eGenVariableCosts]), value(mod[:eGenFixedCosts]), value(mod[:eGenTotalCosts])]) 
-    #CSV.write(joinpath(outputs_dir, filename), costs)
-    #println(" > $filename printed.")
+    filename = "gen_costs_itemized.csv"
+    costs =  DataFrame(component  = ["CostPerTimepoint", "CostPerPeriod", "TotalCost"], 
+                            cost  = [   value(sum(t.weight * mod[:eGenCostPerTp][t] for t in sys.T)), 
+                                        value(mod[:eGenCostPerPeriod]), 
+                                        value(mod[:eGenTotalCost])]) 
+    CSV.write(joinpath(outputs_dir, filename), costs)
+    println(" > $filename printed.")
 
 end
 

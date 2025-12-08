@@ -52,9 +52,17 @@ end
 
 function load_data(inputs_dir:: String)
 
-    T = to_structs(Timepoint, joinpath(inputs_dir, "timepoints.csv"))
-    TS = to_structs(Timeseries, joinpath(inputs_dir, "timeseries.csv"))
+    filename = "timepoints.csv"
+    print(" > $filename ...")
+    T = to_structs(Timepoint, joinpath(inputs_dir, filename))
+    println(" ok.")
 
+    filename = "timeseries.csv"
+    print(" > $filename ...")
+    TS = to_structs(Timeseries, joinpath(inputs_dir, filename))
+    println(" ok.")
+
+    print(" > Timescale calculations ...")
     for t in T
         # Timeseries id for each timepoint
         t.ts_id = findfirst(x -> x.name == t.ts_name, TS)
@@ -85,6 +93,7 @@ function load_data(inputs_dir:: String)
             t.prev_id = t.id - 1
         end
     end
+    println(" ok.")
 
     return T, TS
 end

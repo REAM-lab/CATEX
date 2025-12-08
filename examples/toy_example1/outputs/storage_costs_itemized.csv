@@ -1,4 +1,4 @@
 component,cost
-variable_costs,0.0
-fixed_costs,16.793262819008085
-total_costs,16.793262819008085
+CostPerTimepoint,0.0
+CostPerPeriod,16.793262819008085
+TotalCost,16.793262819008085

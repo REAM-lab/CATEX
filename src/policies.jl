@@ -7,7 +7,7 @@ using CSV, DataFrames, JuMP
 using ..Utils
 
 # Export variables and functions
-export Policy, load_policies, stochastic_capex_model!
+export Policy, load_data, stochastic_capex_model!
 
 
 """
@@ -23,38 +23,40 @@ struct Policy
     # max_CO2_emissions:: Float64
 end
 
-function load_policies(inputs_dir:: String):: Policy
+function load_data(inputs_dir:: String):: Policy
 
+    filename = "max_diffangle.csv"
+    print(" > $filename ...")
     # Read policies from CSV files
     # It is suggested to keep policies in different files as they can have different formats
     # or indices. For example, budget is a single value, while max CO2 emissions could be 
     # defined for certain time periods.
-    #Main.@infiltrate
-    max_diffangle = CSV.read(joinpath(inputs_dir, "max_diffangle.csv"), DataFrame;
+    
+    max_diffangle = CSV.read(joinpath(inputs_dir, filename), DataFrame;
                             types=[Float64])
-
     max_diffangle = max_diffangle[1, :deg] * π/180 # convert degrees to radians
-
+    println(" ok")
 
     return Policy(max_diffangle)
     # return Policy(budget, bus_angle_diff, max_CO2_emissions)
 end
 
-function stochastic_capex_model!(mod:: Model, sys, pol)
+function stochastic_capex_model!(sys, mod:: Model)
 
     N = @views sys.N
     S = @views sys.S
     T = @views sys.T
+    policies = @views sys.policies
 
     # Add policies
-    θlim = pol.max_diffangle
+    θlim = policies.max_diffangle
 
     # Extract variables from other submodules
-    THETA = @views mod[:vTHETA]
+    vTHETA = @views mod[:vTHETA]
 
     # Maximum power transfered by bus
     @constraint(mod, cAngleLimit[n ∈ N, s ∈ S, t ∈ T],
-                    -θlim ≤ THETA[n, s, t] ≤ θlim)
+                    -θlim ≤ vTHETA[n, s, t] ≤ θlim)
                     
 end
 
