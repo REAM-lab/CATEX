@@ -19,25 +19,23 @@ Policy struct to hold policy parameters, additional restrictions, etc for the po
 """
 struct Policy
     # budget:: Float64
-    max_diffangle:: Float64
+    # max_diffangle:: Float64
     # max_CO2_emissions:: Float64
 end
 
 function load_data(inputs_dir:: String):: Policy
 
-    filename = "max_diffangle.csv"
-    print(" > $filename ...")
     # Read policies from CSV files
     # It is suggested to keep policies in different files as they can have different formats
     # or indices. For example, budget is a single value, while max CO2 emissions could be 
     # defined for certain time periods.
     
-    max_diffangle = CSV.read(joinpath(inputs_dir, filename), DataFrame;
-                            types=[Float64])
-    max_diffangle = max_diffangle[1, :deg] * π/180 # convert degrees to radians
-    println(" ok")
+    #max_diffangle = CSV.read(joinpath(inputs_dir, filename), DataFrame;
+    #                        types=[Float64])
+    #max_diffangle = max_diffangle[1, :deg] * π/180 # convert degrees to radians
+    #println(" ok")
 
-    return Policy(max_diffangle)
+    return Policy()
     # return Policy(budget, bus_angle_diff, max_CO2_emissions)
 end
 
@@ -47,17 +45,7 @@ function stochastic_capex_model!(sys, mod:: Model)
     S = @views sys.S
     T = @views sys.T
     policies = @views sys.policies
-
-    # Add policies
-    θlim = policies.max_diffangle
-
-    # Extract variables from other submodules
-    vTHETA = @views mod[:vTHETA]
-
-    # Maximum power transfered by bus
-    @constraint(mod, cAngleLimit[n ∈ N, s ∈ S, t ∈ T],
-                    -θlim ≤ vTHETA[n, s, t] ≤ θlim)
-                    
+                   
 end
 
 end # module Policies

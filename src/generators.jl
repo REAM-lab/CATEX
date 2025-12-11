@@ -136,8 +136,8 @@ function stochastic_capex_model!(sys, mod:: Model)
     
     # The weighted operational costs of running each generator
     @expression(mod, eGenCostPerTp[t ∈ T],
-                        sum(g.c1 * vGEN[g, t] + g.var_om_cost * vGEN[g, t] for g ∈ GN) + 
-                        1/length(S) * sum(s.prob * (g.c1 * vGENV[g, s, t] + g.var_om_cost * vGENV[g, s, t]) for g ∈ GV, s ∈ S))
+                        sum(g.c2 * vGEN[g, t]* vGEN[g, t] + g.c1 * vGEN[g, t] + g.c0 + g.var_om_cost * vGEN[g, t] for g ∈ GN) + 
+                        1/length(S) * sum(s.prob * (g.c2 * vGENV[g, s, t]* vGENV[g, s, t] + g.c1 * vGENV[g, s, t] + g.c0 + g.var_om_cost * vGENV[g, s, t]) for g ∈ GV, s ∈ S))
 
     eCostPerTp =  @views mod[:eCostPerTp]
     unregister(mod, :eCostPerTp)

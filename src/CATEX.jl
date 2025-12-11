@@ -87,15 +87,7 @@ function init_system(;main_dir = pwd())
     S = to_structs(Scenario, joinpath(inputs_dir, filename))
     println(" ok.")
 
-    filename = "buses.csv"
-    print(" > $filename ...")
-    N = to_structs(Bus, joinpath(inputs_dir, filename))
-    println(" ok.")
-
-    filename = "lines.csv"
-    print(" > $filename ...")
-    L = to_structs(Line, joinpath(inputs_dir, filename))
-    println(" ok.")
+    N, L, load = Transmission.load_data(inputs_dir)
 
     filename = "generators.csv"
     print(" > $filename ...")
@@ -112,8 +104,6 @@ function init_system(;main_dir = pwd())
     policies = Policies.load_data(joinpath(main_dir, "inputs"))
      
     cf = Generators.process_cf(inputs_dir)
-
-    load = Transmission.process_load(inputs_dir)
 
     # Create instance of System struct
     sys = System(S, T, TS, N, load, G, cf, L, E, policies)
@@ -170,7 +160,7 @@ function solve_stochastic_capex_model(sys ;main_dir = pwd(),
         filename = "model.txt"
         println(" > $filename printed")
         open(joinpath(main_dir, "outputs", filename), "w") do f
-            println(f, m)
+            println(f, mod)
         end
     end
 
@@ -218,7 +208,7 @@ function run_stocapex(; main_dir = pwd(),
                              print_model = false)
     
     sys = init_system(main_dir = main_dir)
-    mod = solve_stochastic_capex_model(sys; main_dir = main_dir, solver = solver)
+    mod = solve_stochastic_capex_model(sys; main_dir = main_dir, solver = solver, print_model = print_model)
     print_stochastic_capex_results(sys, mod; main_dir = main_dir)
 
     return sys, mod

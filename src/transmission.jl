@@ -10,7 +10,7 @@ using NamedArrays, JuMP, DataFrames, CSV
 using ..Utils
 
 # Export variables and functions
-export Bus, Line, process_load, stochastic_capex_model!
+export Bus, Line, process_data, stochastic_capex_model!
 
 """
 Bus represents a bus or node in the power system.
@@ -60,22 +60,47 @@ Line is a π-model transmission line connecting two buses in the power system.
 - g: conductance of the shunt at one extreme of the line (p.u.)
 - b: susceptance of the shunt at one extreme of the line (p.u.)
 """
-struct Line
+mutable struct Line
     id:: Int64
     name:: String
     from_bus:: String
     to_bus:: String
-    rate:: Float64
-    r:: Float64
-    x:: Float64
-    g:: Float64
-    b:: Float64
+    rate_MW:: Float64
+    r_pu:: Float64
+    x_pu:: Float64
+    g_pu:: Float64
+    b_pu:: Float64
+    angmin_deg:: Float64
+    angmax_deg:: Float64
+    from_bus_id:: Int64
+    to_bus_id:: Int64
+end
+
+# Default values for Line
+function Line(id, name, from_bus, to_bus, rate_MW, r_pu, x_pu, g_pu, b_pu, angmax_deg, angmin_deg; from_bus_id=0, to_bus_id=0)
+       return Line(id, name, from_bus, to_bus, rate_MW, r_pu, x_pu, g_pu, b_pu, angmax_deg, angmin_deg, from_bus_id, to_bus_id)
 end
 
 """
 Load bus data from a CSV file and return it as a NamedArray of Bus structures.
 """
-function process_load(inputs_dir:: String):: NamedArray{Union{Missing, Float64}}
+function load_data(inputs_dir:: String)
+
+    filename = "buses.csv"
+    print(" > $filename ...")
+    N = to_structs(Bus, joinpath(inputs_dir, filename))
+    println(" ok.")
+
+    filename = "lines.csv"
+    print(" > $filename ...")
+    L = to_structs(Line, joinpath(inputs_dir, filename))
+
+    for l in L
+        # Find ids of from_bus and to_bus from line instance
+        l.from_bus_id = findfirst(n -> n.name == l.from_bus, N)
+        l.to_bus_id = findfirst(n -> n.name == l.to_bus, N)
+    end
+    println(" ok.")
 
     # Load load data
     filename = "loads.csv"
@@ -86,8 +111,9 @@ function process_load(inputs_dir:: String):: NamedArray{Union{Missing, Float64}}
     load = to_multidim_array(load, [:bus_name, :sc_name, :tp_name], :load)
     println(" ok.")
 
-    return load
+    return N, L, load
 end
+
 
 """
 `build_admittance_matrix(N:: Vector{String}, lines:: Vector{Any}; include_shunts=false) 
@@ -131,9 +157,9 @@ function build_admittance_matrix(N:: Vector{Bus}, L:: Vector{Line}; include_shun
     
     for line in L
         # Calculate branch admittance and shunt admittance
-        z_branch = complex(line.r, line.x)
+        z_branch = complex(line.r_pu, line.x_pu)
         y_branch = 1.0 / z_branch
-        y_shunt = complex(line.g, line.b)
+        y_shunt = complex(line.g_pu, line.b_pu)
         
         # Find ids of from_bus and to_bus from line instance
         from_bus = findfirst(n -> n.name == line.from_bus, N)
@@ -169,10 +195,9 @@ function get_maxFlow(N:: Vector{Bus}, L:: Vector{Line}):: Vector{Float64}
         # Find ids of from_bus and to_bus from line instance
         from_bus = findfirst(n -> n.name == line.from_bus, N)
         to_bus = findfirst(n -> n.name == line.to_bus, N)
-        rate = line.rate
-        
-        maxFlow[from_bus] += rate
-        maxFlow[to_bus] += rate
+
+        maxFlow[from_bus] += line.rate_MW
+        maxFlow[to_bus] += line.rate_MW
 
     end
 
@@ -211,10 +236,15 @@ function stochastic_capex_model!(sys, mod:: Model)
     @expression(mod, eFlowAtBus[n ∈ N, s ∈ S, t ∈ T], 
                     100 * sum(B[n.id, m.id] * (vTHETA[n, s, t] - vTHETA[m, s, t]) for m in N))
 
-    # Maximum power transfered at each bus
-    @constraint(mod, cMaxFlowAtBus[n ∈ N, s ∈ S, t ∈ T],
-                    -maxFlow[n.id] ≤ eFlowAtBus[n, s, t] ≤ maxFlow[n.id])
+    @constraint(mod, cMaxFlowPerLine[l ∈ L, s ∈ S, t ∈ T; l.rate_MW>0],
+                -l.rate_MW ≤ 100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.from_bus_id], s, t] - vTHETA[N[l.to_bus_id], s, t]) ≤ +l.rate_MW)
 
+    @constraint(mod, cMaxDiffAngle[l ∈ L, s ∈ S, t ∈ T; l.angmax_deg<360],
+                            (vTHETA[N[l.from_bus_id], s, t] - vTHETA[N[l.to_bus_id], s, t])  ≤ l.angmax_deg * pi/180)
+
+    @constraint(mod, cMinDiffAngle[l ∈ L, s ∈ S, t ∈ T; l.angmin_deg>-360],
+                            l.angmin_deg * pi/180 ≤ (vTHETA[N[l.from_bus_id], s, t] - vTHETA[N[l.to_bus_id], s, t]) )
+    
     # Power balance at each bus
     @constraint(mod, cGenBalance[n ∈ N, s ∈ S, t ∈ T], 
                     eGenAtBus[n, s, t] + eNetDischargeAtBus[n, s, t] ≥ 
@@ -241,10 +271,12 @@ function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     dropmissing!(df) # drop rows with missing values
     rename!(df, [:rad => :to_bus_angle]) # rename col
 
-    df.y = 1 ./ (df.r + 1im * df.x) # compute branch admittance
-    df.pflow_MW = 100*(df.from_bus_angle - df.to_bus_angle) .* imag.(df.y) # compute DC power flowing in the branch, assumes Sbase = 100 MVA
-    df.fict_loss_MW = df.r .* abs.(df.pflow_MW) .* abs.(df.pflow_MW) # compute losses (not considered in the optimization)
-    select!(df, Not(:y, :r, :x, :g, :b))
+    df.y_pu = 1 ./ (df.r_pu + 1im * df.x_pu) # compute branch admittance
+    df.pflow_MW = 100*(df.from_bus_angle - df.to_bus_angle) .* imag.(df.y_pu) # compute DC power flowing in the branch, assumes Sbase = 100 MVA
+    df.fict_loss_MW = df.r_pu .* abs.(df.pflow_MW) .* abs.(df.pflow_MW) # compute losses (not considered in the optimization)
+    df.from_bus_angle = df.from_bus_angle * 180/pi # transform to deg
+    df.to_bus_angle = df.to_bus_angle * 180/pi # transform to deg
+    select!(df, Not(:y_pu, :r_pu, :x_pu, :g_pu, :b_pu))
     
     filename = "transmission_flows.csv"
     println(" > $filename printed.")
