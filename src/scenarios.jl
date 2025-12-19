@@ -24,5 +24,15 @@ struct Scenario
     prob:: Float64
 end
 
+function load_data(inputs_dir:: String)
+        
+    # Load scenarios using CSV files
+    filename = "scenarios.csv"
+    print(" > $filename ...")
+    S = to_structs(Scenario, joinpath(inputs_dir, filename))
+    println(" ok.")
+    
+    return S
+end
 
 end # module Scenarios

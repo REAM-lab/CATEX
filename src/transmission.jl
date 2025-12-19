@@ -10,7 +10,7 @@ using NamedArrays, JuMP, DataFrames, CSV
 using ..Utils
 
 # Export variables and functions
-export Bus, Line, process_data, stochastic_capex_model!
+export Bus, Line, load_data, stochastic_capex_model!
 
 """
 Bus represents a bus or node in the power system.
@@ -25,12 +25,8 @@ Bus represents a bus or node in the power system.
 """
 struct Bus
     id:: Int64
-    name:: String
-    kv:: Float64
-    type:: String
-    lat:: Float64
-    lon:: Float64
-    slack:: Bool
+    bus:: String
+    bus_type:: String
 end
 
 """
@@ -39,13 +35,13 @@ Load represents the load demand at a specific bus, scenario, and timepoint.
 - bus_id: ID of the bus
 - sc_id: ID of the scenario
 - t_id: ID of the timepoint
-- load: load demand in megawatts (MW)
+- load_MW: load demand in megawatts (MW)
 """
 struct Load
-    bus_name:: String
-    sc_name:: String
-    tp_name:: String
-    load:: Float64
+    bus:: String
+    scenario:: String
+    timepoint:: String
+    load_MW:: Float64
 end
 
 """
@@ -62,23 +58,23 @@ Line is a π-model transmission line connecting two buses in the power system.
 """
 mutable struct Line
     id:: Int64
-    name:: String
-    from_bus:: String
-    to_bus:: String
-    rate_MW:: Float64
+    line:: String
+    bus_from:: String
+    bus_to:: String
+    rating_MVA:: Float64
     r_pu:: Float64
     x_pu:: Float64
     g_pu:: Float64
     b_pu:: Float64
-    angmin_deg:: Float64
-    angmax_deg:: Float64
-    from_bus_id:: Int64
-    to_bus_id:: Int64
+    angle_max_deg:: Float64
+    angle_min_deg:: Float64
+    bus_id_from:: Int64
+    bus_id_to:: Int64
 end
 
 # Default values for Line
-function Line(id, name, from_bus, to_bus, rate_MW, r_pu, x_pu, g_pu, b_pu, angmax_deg, angmin_deg; from_bus_id=0, to_bus_id=0)
-       return Line(id, name, from_bus, to_bus, rate_MW, r_pu, x_pu, g_pu, b_pu, angmax_deg, angmin_deg, from_bus_id, to_bus_id)
+function Line(id, line, bus_from, bus_to, rating_MVA, r_pu, x_pu, g_pu, b_pu, angle_max_deg, angle_min_deg; bus_id_from=0, bus_id_to=0)
+       return Line(id, line, bus_from, bus_to, rating_MVA, r_pu, x_pu, g_pu, b_pu, angle_max_deg, angle_min_deg, bus_id_from, bus_id_to)
 end
 
 """
@@ -97,8 +93,8 @@ function load_data(inputs_dir:: String)
 
     for l in L
         # Find ids of from_bus and to_bus from line instance
-        l.from_bus_id = findfirst(n -> n.name == l.from_bus, N)
-        l.to_bus_id = findfirst(n -> n.name == l.to_bus, N)
+        l.bus_id_from = findfirst(n -> n.bus == l.bus_from, N)
+        l.bus_id_to = findfirst(n -> n.bus == l.bus_to, N)
     end
     println(" ok.")
 
@@ -108,7 +104,7 @@ function load_data(inputs_dir:: String)
     load = to_structs(Load, joinpath(inputs_dir, filename); add_id_col = false)
     
     # Transform load data into a multidimensional NamedArray
-    load = to_multidim_array(load, [:bus_name, :sc_name, :tp_name], :load)
+    load = to_multidim_array(load, [:bus, :scenario, :timepoint], :load_MW)
     println(" ok.")
 
     return N, L, load
@@ -162,8 +158,8 @@ function build_admittance_matrix(N:: Vector{Bus}, L:: Vector{Line}; include_shun
         y_shunt = complex(line.g_pu, line.b_pu)
         
         # Find ids of from_bus and to_bus from line instance
-        from_bus = findfirst(n -> n.name == line.from_bus, N)
-        to_bus = findfirst(n -> n.name == line.to_bus, N)
+        from_bus = findfirst(n -> n.bus == line.bus_from, N)
+        to_bus = findfirst(n -> n.bus == line.bus_to, N)
 
         # Off-diagonal elements. Y_ij = -y_ij
         Y[from_bus, to_bus] -= y_branch
@@ -193,8 +189,8 @@ function get_maxFlow(N:: Vector{Bus}, L:: Vector{Line}):: Vector{Float64}
 
     for line in L
         # Find ids of from_bus and to_bus from line instance
-        from_bus = findfirst(n -> n.name == line.from_bus, N)
-        to_bus = findfirst(n -> n.name == line.to_bus, N)
+        from_bus = findfirst(n -> n.bus == line.bus_from, N)
+        to_bus = findfirst(n -> n.bus == line.bus_to, N)
 
         maxFlow[from_bus] += line.rate_MW
         maxFlow[to_bus] += line.rate_MW
@@ -219,7 +215,7 @@ function stochastic_capex_model!(sys, mod:: Model)
     maxFlow = get_maxFlow(N, L)
 
     # Get slack bus
-    slack_bus_id = findfirst(n -> n.slack == true, N)
+    slack_bus_id = findfirst(n -> n.bus_type == "slack", N)
     slack_bus = N[slack_bus_id]
 
     # Define bus angle variables
@@ -236,14 +232,14 @@ function stochastic_capex_model!(sys, mod:: Model)
     @expression(mod, eFlowAtBus[n ∈ N, s ∈ S, t ∈ T], 
                     100 * sum(B[n.id, m.id] * (vTHETA[n, s, t] - vTHETA[m, s, t]) for m in N))
 
-    @constraint(mod, cMaxFlowPerLine[l ∈ L, s ∈ S, t ∈ T; l.rate_MW>0],
-                -l.rate_MW ≤ 100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.from_bus_id], s, t] - vTHETA[N[l.to_bus_id], s, t]) ≤ +l.rate_MW)
+    @constraint(mod, cMaxFlowPerLine[l ∈ L, s ∈ S, t ∈ T; l.rating_MVA>0],
+                -l.rating_MVA ≤ 100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) ≤ +l.rating_MVA)
 
     @constraint(mod, cMaxDiffAngle[l ∈ L, s ∈ S, t ∈ T; l.angmax_deg<360],
-                            (vTHETA[N[l.from_bus_id], s, t] - vTHETA[N[l.to_bus_id], s, t])  ≤ l.angmax_deg * pi/180)
+                            (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t])  ≤ l.angmax_deg * pi/180)
 
     @constraint(mod, cMinDiffAngle[l ∈ L, s ∈ S, t ∈ T; l.angmin_deg>-360],
-                            l.angmin_deg * pi/180 ≤ (vTHETA[N[l.from_bus_id], s, t] - vTHETA[N[l.to_bus_id], s, t]) )
+                            l.angmin_deg * pi/180 ≤ (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) )
     
     # Power balance at each bus
     @constraint(mod, cGenBalance[n ∈ N, s ∈ S, t ∈ T], 
@@ -258,24 +254,24 @@ function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     L = @views sys.L 
     lines_df = DataFrame(L) #as dataframe
 
-    # Dataframe of bus angle. Columns: bus_name, sc_name, tp_name, rad
-    angle_df = to_df(mod[:vTHETA], [:bus_name, :sc_name, :tp_name, :rad]; struct_fields=[:name, :name, :name])
+    # Dataframe of bus angle. Columns: bus, scenario, timepoint, rad
+    angle_df = to_df(mod[:vTHETA], [:bus, :scenario, :timepoint, :rad])
 
     # Join
-    df = rightjoin(lines_df, angle_df, on=[:from_bus => :bus_name])
+    df = rightjoin(lines_df, angle_df, on=[:bus_from => :bus, :scenario, :timepoint])
     dropmissing!(df) # drop rows with missing values
-    rename!(df, [:rad => :from_bus_angle]) # rename col
+    rename!(df, [:rad => :bus_from_angle]) # rename col
 
     # Join
-    df = rightjoin(df, angle_df, on=[:to_bus => :bus_name, :sc_name, :tp_name])
+    df = rightjoin(df, angle_df, on=[:bus_to => :bus, :scenario, :timepoint])
     dropmissing!(df) # drop rows with missing values
-    rename!(df, [:rad => :to_bus_angle]) # rename col
+    rename!(df, [:rad => :bus_to_angle]) # rename col
 
     df.y_pu = 1 ./ (df.r_pu + 1im * df.x_pu) # compute branch admittance
-    df.pflow_MW = 100*(df.from_bus_angle - df.to_bus_angle) .* imag.(df.y_pu) # compute DC power flowing in the branch, assumes Sbase = 100 MVA
+    df.pflow_MW = 100*(df.bus_from_angle - df.bus_to_angle) .* imag.(df.y_pu) # compute DC power flowing in the branch, assumes Sbase = 100 MVA
     df.fict_loss_MW = df.r_pu .* abs.(df.pflow_MW) .* abs.(df.pflow_MW) # compute losses (not considered in the optimization)
-    df.from_bus_angle = df.from_bus_angle * 180/pi # transform to deg
-    df.to_bus_angle = df.to_bus_angle * 180/pi # transform to deg
+    df.bus_from_angle = df.bus_from_angle * 180/pi # transform to deg
+    df.bus_to_angle = df.bus_to_angle * 180/pi # transform to deg
     select!(df, Not(:y_pu, :r_pu, :x_pu, :g_pu, :b_pu))
     
     filename = "transmission_flows.csv"

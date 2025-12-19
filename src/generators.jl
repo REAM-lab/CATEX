@@ -10,7 +10,7 @@ using NamedArrays, JuMP, DataFrames, CSV
 using ..Utils
 
 # Export variables and functions
-export Generator, process_cf, stochastic_capex_model!, toCSV_stochastic_capex
+export Generator, load_data, stochastic_capex_model!, toCSV_stochastic_capex
 
 """
 Generator represents a generation project or existing generator in the power system.
@@ -28,16 +28,16 @@ Generator represents a generation project or existing generator in the power sys
 """
 struct Generator
     id:: Int64
-    name:: String
-    tech:: String
-    bus_name:: String
-    c2:: Float64
-    c1:: Float64
-    c0:: Float64
-    invest_cost:: Float64
-    exist_cap:: Float64
-    cap_limit:: Float64
-    var_om_cost:: Float64
+    generator:: String
+    technology:: String
+    bus:: String
+    cap_existing_power_MW:: Float64
+    cap_max_power_MW:: Float64
+    cost_fixed_power_USDperkW:: Float64
+    cost_variable_USDperMWh:: Float64
+    c0_USD:: Float64
+    c1_USDperMWh:: Float64
+    c2_USDperMWh2:: Float64
 end
 
 """
@@ -50,16 +50,19 @@ at a specific scenario and timepoint.
 - capacity_factor: capacity factor (between 0 and 1)
 """
 struct CapacityFactor
-    gen_name:: String
-    sc_name:: String
-    tp_name:: String
+    site:: String
+    scenario:: String
+    timepoint:: String
     capacity_factor:: Float64
 end
 
-"""
-Load generator data from a CSV file and return it as a NamedArray of Generator structures.
-"""
-function process_cf(inputs_dir:: String) :: NamedArray{Union{Missing, Float64}}
+function load_data(inputs_dir::String)
+
+    # Load generator data from CSV file
+    filename = "generators.csv"
+    print(" > $filename ...")
+    G = to_structs(Generator, joinpath(inputs_dir, filename))
+    println(" ok.")
 
     # Load capacity factor data
     filename = "capacity_factors.csv"
@@ -67,13 +70,13 @@ function process_cf(inputs_dir:: String) :: NamedArray{Union{Missing, Float64}}
     cf = to_structs(CapacityFactor, joinpath(inputs_dir, filename); add_id_col = false)
 
     # Transform capacity factor data into a multidimensional NamedArray
-    cf = to_multidim_array(cf, [:gen_name, :sc_name, :tp_name], :capacity_factor)
-
+    cf = to_multidim_array(cf, [:bus, :scenario, :timepoint], :capacity_factor)
     println(" ok.")
-    return cf
+
+    return G, cf
 end
 
-function stochastic_capex_model!(sys, mod:: Model)
+function stochastic_capex_model!(sys, mod:: Model, gen_costs:: String)
 
     S = @views sys.S
     T = @views sys.T
@@ -95,7 +98,7 @@ function stochastic_capex_model!(sys, mod:: Model)
     """
     GN = setdiff( G, GV )
 
-    G_AT_BUS = [filter(g -> g.bus_name == n.name, G) for n in N]
+    G_AT_BUS = [filter(g -> g.bus == n.bus, G) for n in N]
     GV_AT_BUS= intersect.(G_AT_BUS, fill(GV, length(N)))  
     GN_AT_BUS = intersect.(G_AT_BUS, fill(GN, length(N)))    
     
@@ -109,24 +112,24 @@ function stochastic_capex_model!(sys, mod:: Model)
 
     # Minimum capacity of generators
     @constraint(mod, cMinCapGenVar[g ∈ GV, s ∈ S], 
-                    vCAPV[g, s] ≥ g.exist_cap)
+                    vCAPV[g, s] ≥ g.cap_existing_power_MW)
 
     @constraint(mod, cMinCapGenNonVar[g ∈ GN], 
-                    vCAP[g] ≥ g.exist_cap)
+                    vCAP[g] ≥ g.cap_existing_power_MW)
 
     # Maximum build capacity 
     @constraint(mod, cMaxCapNonVar[g ∈ GN], 
-                    vCAP[g] ≤ g.cap_limit)
+                    vCAP[g] ≤ g.cap_max_power_MW)
 
     @constraint(mod, cMaxCapVar[g ∈ GV, s ∈ S], 
-                    vCAPV[g, s] ≤ g.cap_limit)
+                    vCAPV[g, s] ≤ g.cap_max_power_MW)
     
     # Maximum power generation
     @constraint(mod, cMaxGenNonVar[g ∈ GN, t ∈ T], 
                     vGEN[g, t] ≤ vCAP[g])
 
     @constraint(mod, cMaxGenVar[g ∈ GV, s ∈ S, t ∈ T], 
-                    vGENV[g, s, t] ≤ cf[g.name, s.name, t.name]*vCAPV[g, s])
+                    vGENV[g, s, t] ≤ cf[g.site, s.scenario, t.timepoint]*vCAPV[g, s])
 
     # Power generation by bus
     @expression(mod, eGenAtBus[n ∈ N, s ∈ S, t ∈ T], 
@@ -135,18 +138,25 @@ function stochastic_capex_model!(sys, mod:: Model)
 
     
     # The weighted operational costs of running each generator
+    if gen_costs == "quadratic"
     @expression(mod, eGenCostPerTp[t ∈ T],
-                        sum(g.c2 * vGEN[g, t]* vGEN[g, t] + g.c1 * vGEN[g, t] + g.c0 + g.var_om_cost * vGEN[g, t] for g ∈ GN) + 
-                        1/length(S) * sum(s.prob * (g.c2 * vGENV[g, s, t]* vGENV[g, s, t] + g.c1 * vGENV[g, s, t] + g.c0 + g.var_om_cost * vGENV[g, s, t]) for g ∈ GV, s ∈ S))
+                        sum(g.c2 * vGEN[g, t]* vGEN[g, t] + g.c1 * vGEN[g, t] + g.c0 for g ∈ GN) + 
+                        1/length(S) * sum(s.prob * (g.c2 * vGENV[g, s, t]* vGENV[g, s, t] + g.c1 * vGENV[g, s, t] + g.c0 ) for g ∈ GV, s ∈ S))
 
+    elseif gen_costs == "linear"
+    @expression(mod, eGenCostPerTp[t ∈ T],
+                        sum(g.cost_variable_USDperMWh * vGEN[g, t] for g ∈ GN) + 
+                        1/length(S) * sum(s.prob * g.cost_variable_USDperMWh * vGENV[g, s, t] for g ∈ GV, s ∈ S))
+    end
+    
     eCostPerTp =  @views mod[:eCostPerTp]
     unregister(mod, :eCostPerTp)
     @expression(mod, eCostPerTp[t ∈ T], eCostPerTp[t] + eGenCostPerTp[t])
 
     # Fixed costs 
     @expression(mod, eGenCostPerPeriod,
-                    sum(g.invest_cost * vCAP[g] for g ∈ GN) 
-                    + 1/length(S) * sum( (s.prob * g.invest_cost * vCAPV[g, s]) for g ∈ GV, s ∈ S ))
+                    sum(g.cost_fixed_power_USDperkW * vCAP[g] * 1000 for g ∈ GN) 
+                    + 1/length(S) * sum( (s.prob * g.cost_fixed_power_USDperkW * vCAPV[g, s] * 1000) for g ∈ GV, s ∈ S ))
 
     eCostPerPeriod =  @views mod[:eCostPerPeriod]
     unregister(mod, :eCostPerPeriod)
@@ -160,20 +170,16 @@ end
 function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     
     # Print vGEN variable solution
-    to_df(mod[:vGEN], [:gen_name, :tp_name, :DispatchGen_MW]; 
-                        struct_fields=[:name, :name], csv_dir = joinpath(outputs_dir,"gen_dispatch.csv"))
+    to_df(mod[:vGEN], [:generator, :timepoint, :DispatchGen_MW]; csv_dir = joinpath(outputs_dir,"gen_dispatch.csv"))
     
     # Print vCAP variable solution
-    to_df(mod[:vCAP], [:gen_name, :GenCapacity]; 
-                        struct_fields=[:name], csv_dir = joinpath(outputs_dir,"gen_cap.csv"))
+    to_df(mod[:vCAP], [:generator, :GenCapacity]; csv_dir = joinpath(outputs_dir,"gen_cap.csv"))
 
     # Print vGENV variable solution
-    to_df(mod[:vGENV], [:gen_name, :sc_name, :tp_name, :DispatchGen_MW]; 
-                        struct_fields=[:name, :name, :name], csv_dir = joinpath(outputs_dir,"var_gen_dispatch.csv"))
+    to_df(mod[:vGENV], [:generator, :scenario, :timepoint, :DispatchGen_MW]; csv_dir = joinpath(outputs_dir,"var_gen_dispatch.csv"))
 
     # Print vCAPV variable solution
-    to_df(mod[:vCAPV], [:gen_name, :sc_name, :GenCapacity]; 
-                        struct_fields=[:name, :name], csv_dir = joinpath(outputs_dir,"var_gen_cap.csv"))
+    to_df(mod[:vCAPV], [:generator, :scenario, :GenCapacity]; csv_dir = joinpath(outputs_dir,"var_gen_cap.csv"))
 
     # Print cost expressions
     filename = "gen_costs_itemized.csv"

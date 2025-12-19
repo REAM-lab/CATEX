@@ -6,10 +6,10 @@ which are the ones placed in the "inputs" folder.
 """
 
 # Use Julia package
-using CATEX, MosekTools
+using Catex, MosekTools
 
 # Set the main directory for the case study
-main_dir ="/Users/paul/Documents/CATEX/examples/case5"
+main_dir = joinpath("examples", "case5")
 
 # Run stochastic capacity expansion 
 sys, mod = run_stocapex(; main_dir = main_dir, solver = Mosek.Optimizer, print_model = true) 

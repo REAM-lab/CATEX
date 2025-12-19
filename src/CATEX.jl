@@ -4,7 +4,7 @@ A Julia package for modeling capacity expansion and operational
 optimization. Originally developed for the state of California,
 it can be adapted for other regions.
 """
-module CATEX
+module Catex
 
 # Import Julia packages
 using CSV, DataFrames, JuMP, MosekTools, NamedArrays
@@ -16,11 +16,12 @@ include("transmission.jl")
 include("generators.jl")
 include("energy_storage.jl")
 include("timescales.jl")
+include("climate.jl")
 include("policies.jl")
 
 
 # Use internal modules
-using .Utils, .Scenarios, .Transmission, .Generators, .EnergyStorage, .Timescales, .Policies
+using .Utils, .Scenarios, .Transmission, .Generators, .EnergyStorage, .Timescales, .Climate, .Policies
 
 # Export the functions we want users to be able to access easily
 export init_system, solve_stochastic_capex_model, run_stocapex
@@ -55,7 +56,7 @@ end
 This function defines how to display the System struct in the REPL or when printed in Julia console.
 """
 function Base.show(io::IO, ::MIME"text/plain", sys::System)
-    println(io, "CATEX System:")
+    println(io, "Catex system:")
     println(io, "   ├ N (buses) = ", getfield.(sys.N, :name))
     println(io, "   ├ L (lines) = ", getfield.(sys.L, :name))
     println(io, "   ├ G (generators) = ", getfield.(sys.G, :name))
@@ -74,7 +75,7 @@ Initialize the System struct by loading data from CSV files in the inputs direct
 function init_system(;main_dir = pwd())
 
     println("-------------------------") 
-    println(" CATEX  - version 0.1.0") 
+    println(" Catex  - version 0.1.0") 
     println("-------------------------") 
 
     # Define the inputs directory
@@ -82,29 +83,18 @@ function init_system(;main_dir = pwd())
 
     println("> Loading system data from $inputs_dir :")
     
-    filename = "scenarios.csv"
-    print(" > $filename ...")
-    S = to_structs(Scenario, joinpath(inputs_dir, filename))
-    println(" ok.")
+    S = Scenarios.load_data(inputs_dir)
 
     N, L, load = Transmission.load_data(inputs_dir)
 
-    filename = "generators.csv"
-    print(" > $filename ...")
-    G = to_structs(Generator, joinpath(inputs_dir, filename))
-    println(" ok.")
+    G, cf = Generators.load_data(inputs_dir)
 
-    filename = "energy_storage.csv"
-    print(" > $filename ...")
-    E = to_structs(EnergyStorageUnit, joinpath(inputs_dir, filename))
-    println(" ok.")
+    E = EnergyStorage.load_data(inputs_dir)
 
     T, TS = Timescales.load_data(inputs_dir)
 
     policies = Policies.load_data(joinpath(main_dir, "inputs"))
      
-    cf = Generators.process_cf(inputs_dir)
-
     # Create instance of System struct
     sys = System(S, T, TS, N, load, G, cf, L, E, policies)
 
@@ -116,7 +106,8 @@ Solves a stochastic capacity expansion problem.
 """ 
 function solve_stochastic_capex_model(sys ;main_dir = pwd(), 
                                     solver = Mosek.Optimizer,
-                                    print_model = false)
+                                    print_model = false,
+                                    gen_costs = "linear")
 
 
     println("> Building JuMP model:")
@@ -131,7 +122,7 @@ function solve_stochastic_capex_model(sys ;main_dir = pwd(),
     @expression(mod, eCostPerTp[t ∈ sys.T], 0)
 
     print(" > Generator vars and constraints ... ")
-    tep = @elapsed Generators.stochastic_capex_model!(sys, mod)
+    tep = @elapsed Generators.stochastic_capex_model!(sys, mod, gen_costs)
     println(" ok [$(round(tep, digits = 3)) seconds].")
 
     print(" > Energy storage vars and constraints ... ")
@@ -205,13 +196,14 @@ end
 
 function run_stocapex(; main_dir = pwd(), 
                              solver = Mosek.Optimizer,
-                             print_model = false)
+                             print_model = false, 
+                             gen_costs = "linear")
     
     sys = init_system(main_dir = main_dir)
-    mod = solve_stochastic_capex_model(sys; main_dir = main_dir, solver = solver, print_model = print_model)
+    mod = solve_stochastic_capex_model(sys; main_dir = main_dir, solver = solver, print_model = print_model, gen_costs = gen_costs)
     print_stochastic_capex_results(sys, mod; main_dir = main_dir)
 
     return sys, mod
 end
 
-end # module CATEX
+end # module Catex

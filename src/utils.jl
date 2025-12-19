@@ -9,47 +9,33 @@ export to_structs, to_multidim_array, to_df, convert_df_columns!
 
 function to_structs(structure::DataType, file_dir:: String; add_id_col = true):: Vector{structure}
     
+    # Read CSV file into a DataFrame
     df = CSV.read(file_dir, DataFrame)
+
+    # Insert id column if add_id_col is true
     if add_id_col
         insertcols!(df, 1, :id => 1:nrow(df))
     end
 
+    # Get field names and correspoding types of the structure 
     field_type_pairs = Dict(fieldnames(structure) .=> fieldtypes(structure))
+
+    # Filter field_type_pairs to only include columns names that exist in the DataFrame
     field_type_pairs = Dict((k, v) for (k,v) in field_type_pairs if k in propertynames(df))
+
+    # Convert DataFrame columns to the correct types
     convert_df_columns!(df, field_type_pairs)
     
-    cols = Tuple(df[!, col] for col in names(df))
+    # Put columns of dataframe as vectors and create a tuple of these vectors.
+    cols = Tuple(df[!, field] for field in keys(field_type_pairs))
 
+    # Create a vector of structures from the tuple of vectors
     V = structure.(cols...)    
 
     return V
 end
 
-function to_immutable_structs(structure::DataType, file_dir:: String; add_id_col = true):: Vector{structure}
-    struct_names = fieldnames(structure)
-    struct_types = fieldtypes(structure)
 
-    first_twolines = CSV.read(file_dir, DataFrame; limit=1)
-    csv_header = Tuple(propertynames(first_twolines))
-    
-    if add_id_col
-        csv_header = (:id, csv_header...) 
-    end
-    
-    @assert csv_header == struct_names """Incorrect column names of $file_dir.
-                                          Column names must be $struct_names"""
-
-    df = CSV.read(file_dir, DataFrame; types=Dict(zip(struct_names, struct_types)), validate=false)
-
-    if add_id_col
-        insertcols!(df, 1, :id => 1:nrow(df))
-    end
-
-    cols = Tuple(df[!, col] for col in names(df))
-    V = structure.(cols...)    
-
-    return V
-end
 
 function to_multidim_array(structures:: Vector{T}, dims:: Vector{Symbol}, value:: Symbol):: NamedArray{Union{Missing, Float64}} where {T} 
     
@@ -157,7 +143,31 @@ function to_tupled_Dict(data:: DataFrame, keys:: Vector{Symbol}, value:: Symbol)
     return Dict(Pair.(col_keys, col_value))
 end
 
+function to_immutable_structs(structure::DataType, file_dir:: String; add_id_col = true):: Vector{structure}
+    struct_names = fieldnames(structure)
+    struct_types = fieldtypes(structure)
 
+    first_twolines = CSV.read(file_dir, DataFrame; limit=1)
+    csv_header = Tuple(propertynames(first_twolines))
+    
+    if add_id_col
+        csv_header = (:id, csv_header...) 
+    end
+    
+    @assert csv_header == struct_names """Incorrect column names of $file_dir.
+                                          Column names must be $struct_names"""
+
+    df = CSV.read(file_dir, DataFrame; types=Dict(zip(struct_names, struct_types)), validate=false)
+
+    if add_id_col
+        insertcols!(df, 1, :id => 1:nrow(df))
+    end
+
+    cols = Tuple(df[!, col] for col in names(df))
+    V = structure.(cols...)    
+
+    return V
+end
 
 
 end # ends utils module

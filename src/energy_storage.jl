@@ -7,14 +7,15 @@ using NamedArrays, JuMP, DataFrames, CSV
 using ..Utils
 
 # Export variables and functions
-export EnergyStorageUnit, stochastic_capex_model!, toCSV_stochastic_capex
+export EnergyStorageUnit, load_data, stochastic_capex_model!, toCSV_stochastic_capex
 
 """
 Energy storage unit represents an energy storage system in the power system.
 # Fields:
-- es_id: ID of the storage system
-- es_tech: technology type of the storage system, for example, "battery", "pumped_hydro". It could be any string.
-- bus_id: ID of the bus where the storage system is connected to.
+- id: ID of the storage system
+- storage: name of storage unit. It could be any string.
+- technology: technology type of the storage system, for example, "lithium-ion", "flow". It could be any string.
+- bus: name of the bus where the storage system is connected to.
 - invest_cost: investment cost per MW of power capacity (USD/MW)
 - exist_power_cap: pre-existing power capacity of the storage system (MW)
 - exist_energy_cap: pre-existing energy capacity of the storage system (MWh)
@@ -24,17 +25,29 @@ Energy storage unit represents an energy storage system in the power system.
 """
 struct EnergyStorageUnit
     id:: Int64
-    name:: String
-    tech:: String
-    bus_name:: String
-    invest_cost:: Float64
-    exist_power_cap:: Float64
-    exist_energy_cap:: Float64
-    power_cap_limit:: Float64
-    var_om_cost:: Float64
-    charge_effic:: Float64
-    discha_effic:: Float64
-    duration:: Float64
+    storage:: String
+    technology:: String
+    bus:: String
+    cap_existing_energy_MWh:: Float64
+    cap_existing_power_MW:: Float64
+    cap_max_power_MW:: Float64
+    cost_fixed_energy_USDperkWh:: Float64
+    cost_fixed_power_USDperkW:: Float64
+    cost_variable_USDperMWh:: Float64
+    duration_hrs:: Float64
+    efficiency_charge:: Float64
+    efficiency_discharge:: Float64
+end
+
+function load_data(inputs_dir::String)
+
+    # Load energy storage units using CSVs
+    filename = "energy_storage.csv"
+    print(" > $filename ...")
+    E = to_structs(EnergyStorageUnit, joinpath(inputs_dir, filename))
+    println(" ok.")
+
+    return E
 end
 
 function stochastic_capex_model!(sys, mod:: Model)
@@ -44,9 +57,15 @@ function stochastic_capex_model!(sys, mod:: Model)
     S = @views sys.S
     E = @views sys.E
 
-    E_AT_BUS = [filter(e -> e.bus_name == n.name, E) for n in N]
+    # Filter energy storage units by bus
+    E_AT_BUS = [filter(e -> e.bus == n.bus, E) for n in N]
 
     # Define generation variables
+    # vCHARGE: power discharged from the storage system (MW)
+    # vDISCHA: power discharged from the storage system (MW)
+    # vSOC: state of charge of the storage system (MWh)
+    # vPCAP: power capacity of the storage system (MW)
+    # vECAP: energy capacity of the storage system (MWh)
     @variables(mod, begin
             vDISCHA[E, S, T] ≥ 0
             vCHARGE[E, S, T] ≥ 0       
@@ -55,14 +74,14 @@ function stochastic_capex_model!(sys, mod:: Model)
             vECAP[E, S] ≥ 0  
     end)
 
-    @constraint(mod, cMinEnerCapStor[e ∈ E, s ∈ S], 
-                        vECAP[e, s] ≥ e.exist_energy_cap)
+    @constraint(mod, cMinEnerCapStor[e ∈ E, s ∈ S],     
+                        vECAP[e, s] ≥ e.cap_existing_energy_MWh)
     
     @constraint(mod, cMinPowerCapStor[e ∈ E, s ∈ S], 
-                        vPCAP[e, s] ≥ e.exist_power_cap)
+                        vPCAP[e, s] ≥ e.cap_existing_power_MW)
 
     @constraint(mod, cMaxPowerCapStor[e ∈ E, s ∈ S], 
-                        vPCAP[e, s] ≤ e.power_cap_limit)
+                        vPCAP[e, s] ≤ e.cap_max_power_MW)
 
     # Define constraints for energy storage systems
     @constraint(mod, cMaxCharge[e ∈ E, s ∈ S, t ∈ T], 
@@ -71,46 +90,47 @@ function stochastic_capex_model!(sys, mod:: Model)
     @constraint(mod, cMaxDischa[e ∈ E, s ∈ S, t ∈ T], 
                         vDISCHA[e, s, t] ≤ vPCAP[e, s])
     
-    E_fixdur = filter(e -> e.duration > 0, E)
+    E_fixdur = filter(e -> e.duration_hrs > 0, E)
 
     if !isempty(E_fixdur)
     @constraint(mod, cFixEnergyPowerRatio[e ∈ E, s ∈ S, t ∈ T], 
-                        vECAP[e, s] ==  e.duration * vPCAP[e, s] )
+                        vECAP[e, s] ==  e.duration_hrs * vPCAP[e, s] )
     end
 
-    # Energy capacity must be less ×4 the power capacity
     @constraint(mod, cMaxSOC[e ∈ E, s ∈ S, t ∈ T], 
                         vSOC[e, s, t] ≤ vECAP[e, s])
 
     # SOC in the next time is a function of SOC in the previous time
     # with circular wrapping for the first and last timepoints within a timeseries
     @constraint(mod, cStateOfCharge[e ∈ E, s ∈ S, t ∈ T],
-                        vSOC[e, s, t] == vSOC[e, s, T[t.prev_id]] 
-                                        + vCHARGE[e, s, t]*e.charge_effic 
-                                        - vDISCHA[e, s, t]*1/e.discha_effic)
+                        vSOC[e, s, t] == vSOC[e, s, T[t.prev_timepoint_id]] +
+                                        t.duration_hrs*(vCHARGE[e, s, t]*e.efficiency_charge 
+                                                        - vDISCHA[e, s, t]*1/e.efficiency_discharge) )
 
     # Power generation by bus
     @expression(mod, eNetDischargeAtBus[n ∈ N, s ∈ S, t ∈ T], 
                     - sum(vCHARGE[e, s, t] for e ∈ E_AT_BUS[n.id]) 
                     + sum(vDISCHA[e, s, t] for e ∈ E_AT_BUS[n.id]) )
 
-    # 
+    # Storage cost per timepoint
     @expression(mod, eStorCostPerTp[t ∈ T],
-                     1/length(S)*(sum(s.prob * e.var_om_cost * vCHARGE[e, s, t] for e ∈ E, s ∈ S) ) )
+                     1/length(S)*(sum(s.prob * e.cost_variable_USDperMWh * vCHARGE[e, s, t] for e ∈ E, s ∈ S) ) )
     
     eCostPerTp =  @views mod[:eCostPerTp]
     unregister(mod, :eCostPerTp)
     @expression(mod, eCostPerTp[t ∈ T], eCostPerTp[t] + eStorCostPerTp[t])
 
                      
-    # Fixed costs 
+    # Storage cost per period
 	@expression(mod, eStorCostPerPeriod,
-                    1/length(S)*sum( (s.prob * e.invest_cost * vPCAP[e, s]) for e ∈ E, s ∈ S ))
+                    1/length(S)*sum( s.prob * (e.cost_fixed_power_USDperkW * vPCAP[e, s] * 1000 
+                                                + e.cost_fixed_energy_USDperkWh * vECAP[e, s] * 1000) for e ∈ E, s ∈ S ))
 
     eCostPerPeriod =  @views mod[:eCostPerPeriod]
     unregister(mod, :eCostPerPeriod)
     @expression(mod, eCostPerPeriod, eCostPerPeriod + eStorCostPerPeriod)
                 
+
     # Total costs
     @expression(mod, eStorTotalCost, sum(eStorCostPerTp[t] * t.weight for t in T) + eStorCostPerPeriod)
     
@@ -119,26 +139,23 @@ end
 function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
 
     # Print vCHARGE AND vDISCHARGE 
-    df1 = to_df(mod[:vCHARGE], [:es_name, :sc_name, :tp_name, :Charge_MW]; 
-                                struct_fields=[:name, :name, :name])
-    df2 = to_df(mod[:vDISCHA], [:es_name, :sc_name, :tp_name, :Discharge_MW];
-                                struct_fields=[:name, :name, :name])
+    df1 = to_df(mod[:vCHARGE], [:storage, :scenario, :timepoint, :Charge_MW])
+
+    df2 = to_df(mod[:vDISCHA], [:storage, :scenario, :timepoint, :Discharge_MW])
     
-    df_mix1 = outerjoin(df1, df2, on=[:es_name, :sc_name, :tp_name])
+    df_mix1 = outerjoin(df1, df2, on=[:storage, :scenario, :timepoint])
     CSV.write(joinpath(outputs_dir, "storage_dispatch.csv"), df_mix1)
 
-    to_df(mod[:vSOC], [:es_name, :sc_name, :tp_name, :SOC_MWh];
-                    struct_fields=[:name, :name, :name], csv_dir = joinpath(outputs_dir, "storage_soc.csv"))
+    to_df(mod[:vSOC], [:storage, :scenario, :timepoint, :SOC_MWh];
+                    csv_dir = joinpath(outputs_dir, "storage_soc.csv"))
     
     # Print vGENV variable solution
-    df1 = to_df(mod[:vPCAP], [:es_name, :sc_name, :PowerCap_MW]; 
-                        struct_fields=[:name, :name])
+    df1 = to_df(mod[:vPCAP], [:storage, :scenario, :PowerCap_MW])
 
     # Print vCAPV variable solution
-    df2 = to_df(mod[:vECAP], [:es_name, :sc_name, :EnergyCap_MWh]; 
-                        struct_fields=[:name, :name])
+    df2 = to_df(mod[:vECAP], [:storage, :scenario, :EnergyCap_MWh])
 
-    df_mix1 = outerjoin(df1, df2, on=[:es_name, :sc_name])
+    df_mix1 = outerjoin(df1, df2, on=[:storage, :scenario])
     CSV.write(joinpath(outputs_dir, "storage_capacity.csv"), df_mix1)
 
     # Print cost expressions
