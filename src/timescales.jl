@@ -26,27 +26,27 @@ mutable struct Timepoint
     timeseries:: String
     timeseries_id:: Int64 
     weight:: Float64
-    duration_hrs:: Float64
+    duration_hr:: Float64
     prev_timepoint_id:: Int64
 end 
 
 # Default values for Timepoint
-function Timepoint(id, timepoint, timeseries; timeseries_id=0, weight=0, duration_hrs=0, prev_timepoint_id=0)
-       return Timepoint(id, timepoint, timeseries, timeseries_id, weight, duration_hrs, prev_timepoint_id)
+function Timepoint(id, timepoint, timeseries; timeseries_id=0, weight=0, duration_hr=0, prev_timepoint_id=0)
+       return Timepoint(id, timepoint, timeseries, timeseries_id, weight, duration_hr, prev_timepoint_id)
 end
 
 mutable struct Timeseries
     id:: Int64
     timeseries:: String
-    timepoint_duration_hrs:: Float64
+    timepoint_duration_hr:: Float64
     number_of_timepoints:: Int64
     timeseries_scale_to_period:: Float64
     timepoints_ids:: Vector{Int64}
 end 
 
 # Default values for Timeseries
-function Timeseries(id, timeseries, timepoint_duration_hrs, number_of_timepoints, timeseries_scale_to_period; timepoints_ids = Vector{Int64}())
-       return Timeseries(id, timeseries, timepoint_duration_hrs, number_of_timepoints, timeseries_scale_to_period, timepoints_ids)
+function Timeseries(id, timeseries, timepoint_duration_hr, number_of_timepoints, timeseries_scale_to_period; timepoints_ids = Vector{Int64}())
+       return Timeseries(id, timeseries, timepoint_duration_hr, number_of_timepoints, timeseries_scale_to_period, timepoints_ids)
 end
 
 function load_data(inputs_dir:: String)
@@ -67,10 +67,10 @@ function load_data(inputs_dir:: String)
         t.timeseries_id = findfirst(x -> x.timeseries == t.timeseries, TS)
 
         # Duration (hrs) for each timepoint
-        t.duration_hrs = (TS[t.timeseries_id]).timepoint_duration_hrs 
+        t.duration_hr = (TS[t.timeseries_id]).timepoint_duration_hr 
 
         # Weight for each timepoint
-        t.weight = t.duration_hrs * (TS[t.timeseries_id]).timeseries_scale_to_period
+        t.weight = t.duration_hr * (TS[t.timeseries_id]).timeseries_scale_to_period
 
     end
 

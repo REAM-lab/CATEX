@@ -1,4 +1,4 @@
-gen_name,sc_name,tp_name,DispatchGen_MW
+generator,scenario,timepoint,DispatchGen_MW
 1,sc1,1,12.099994079674646
 2,sc1,1,2.4549306075573126e-7
 3,sc1,1,2.454930607542069e-7

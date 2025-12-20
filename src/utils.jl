@@ -40,19 +40,24 @@ end
 
 
 
-function to_multidim_array(structures:: Vector{T}, dims:: Vector{Symbol}, value:: Symbol):: NamedArray{Union{Missing, Float64}} where {T} 
+function to_multidim_array(structures:: Vector{T}, dims:: Vector{Symbol}, value:: Symbol; asNamedArray=false) where {T} 
     
     # Get unique values in each dimensions, for example if dims=[:gen], then vals_in_dim=[["sd", "lima"]]
     vals_in_dim = [unique(getfield.(structures, d)) for (_, d) in enumerate(dims)]
     
-    arr = NamedArray(Array{Union{Missing, Float64}}(missing, length.(vals_in_dim)...), vals_in_dim, dims)
-
+    if !asNamedArray
+        arr = Array{Union{Missing, Float64}}(missing, length.(vals_in_dim)...)
+    else
+        arr = NamedArray(Array{Union{Missing, Float64}}(missing, length.(vals_in_dim)...), vals_in_dim, dims)
+    end
+    
     for s in structures
         arr[getfield.(Ref(s), dims)...] = getfield(s, value)
     end
 
     return arr
 end
+
 
 function convert_df_columns!(df::DataFrame, col_type_pairs::Dict{Symbol, DataType})
     for (col_name, target_type) in col_type_pairs

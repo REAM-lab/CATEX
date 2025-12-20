@@ -1,4 +1,4 @@
-﻿bus_name,sc_name,tp_name,load
+﻿bus,scenario,timepoint,load_MW
 1,sc1,1,56.6305477
 2,sc1,1,12.1925924
 3,sc1,1,0

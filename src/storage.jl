@@ -1,4 +1,4 @@
-module EnergyStorage
+module Storage
 
 # Use Julia standard libraries and third-party packages
 using NamedArrays, JuMP, DataFrames, CSV
@@ -7,10 +7,10 @@ using NamedArrays, JuMP, DataFrames, CSV
 using ..Utils
 
 # Export variables and functions
-export EnergyStorageUnit, load_data, stochastic_capex_model!, toCSV_stochastic_capex
+export StorageUnit, load_data, stochastic_capex_model!, toCSV_stochastic_capex
 
 """
-Energy storage unit represents an energy storage system in the power system.
+Storage unit represents an energy storage system in the power system.
 # Fields:
 - id: ID of the storage system
 - storage: name of storage unit. It could be any string.
@@ -23,7 +23,7 @@ Energy storage unit represents an energy storage system in the power system.
 - efficiency: round-trip efficiency of the storage system (between 0 and 1)
 - duration: duration of the storage system at full power (hours)
 """
-struct EnergyStorageUnit
+struct StorageUnit
     id:: Int64
     storage:: String
     technology:: String
@@ -34,18 +34,21 @@ struct EnergyStorageUnit
     cost_fixed_energy_USDperkWh:: Float64
     cost_fixed_power_USDperkW:: Float64
     cost_variable_USDperMWh:: Float64
-    duration_hrs:: Float64
+    duration_hr:: Float64
     efficiency_charge:: Float64
     efficiency_discharge:: Float64
+    c0_USD:: Float64
+    c1_USDperMWh:: Float64
+    c2_USDperMWh2:: Float64
 end
 
 function load_data(inputs_dir::String)
 
     # Load energy storage units using CSVs
-    filename = "energy_storage.csv"
+    filename = "storage.csv"
     print(" > $filename ...")
-    E = to_structs(EnergyStorageUnit, joinpath(inputs_dir, filename))
-    println(" ok, loaded ", length(E), " energy storage units.")
+    E = to_structs(StorageUnit, joinpath(inputs_dir, filename))
+    println(" ok, loaded ", length(E), " storage units.")
 
     return E
 end
@@ -90,11 +93,11 @@ function stochastic_capex_model!(sys, mod:: Model)
     @constraint(mod, cMaxDischa[e ∈ E, s ∈ S, t ∈ T], 
                         vDISCHA[e, s, t] ≤ vPCAP[e, s])
     
-    E_fixdur = filter(e -> e.duration_hrs > 0, E)
+    Eids_fixduration = filter(e -> e.duration_hr > 0, E)
 
-    if !isempty(E_fixdur)
-    @constraint(mod, cFixEnergyPowerRatio[e ∈ E, s ∈ S, t ∈ T], 
-                        vECAP[e, s] ==  e.duration_hrs * vPCAP[e, s] )
+    if !isempty(Eids_fixduration)
+    @constraint(mod, cFixEnergyPowerRatio[e ∈ E[Eids_fixduration], s ∈ S], 
+                        vECAP[e, s] ==  e.duration_hr * vPCAP[e, s] )
     end
 
     @constraint(mod, cMaxSOC[e ∈ E, s ∈ S, t ∈ T], 
@@ -104,7 +107,7 @@ function stochastic_capex_model!(sys, mod:: Model)
     # with circular wrapping for the first and last timepoints within a timeseries
     @constraint(mod, cStateOfCharge[e ∈ E, s ∈ S, t ∈ T],
                         vSOC[e, s, t] == vSOC[e, s, T[t.prev_timepoint_id]] +
-                                        t.duration_hrs*(vCHARGE[e, s, t]*e.efficiency_charge 
+                                        t.duration_hr*(vCHARGE[e, s, t]*e.efficiency_charge 
                                                         - vDISCHA[e, s, t]*1/e.efficiency_discharge) )
 
     # Power generation by bus
@@ -114,7 +117,7 @@ function stochastic_capex_model!(sys, mod:: Model)
 
     # Storage cost per timepoint
     @expression(mod, eStorCostPerTp[t ∈ T],
-                     1/length(S)*(sum(s.prob * e.cost_variable_USDperMWh * vCHARGE[e, s, t] for e ∈ E, s ∈ S) ) )
+                     1/length(S)*(sum(s.probability * e.cost_variable_USDperMWh * vCHARGE[e, s, t] for e ∈ E, s ∈ S) ) )
     
     eCostPerTp =  @views mod[:eCostPerTp]
     unregister(mod, :eCostPerTp)
@@ -123,7 +126,7 @@ function stochastic_capex_model!(sys, mod:: Model)
                      
     # Storage cost per period
 	@expression(mod, eStorCostPerPeriod,
-                    1/length(S)*sum( s.prob * (e.cost_fixed_power_USDperkW * vPCAP[e, s] * 1000 
+                    1/length(S)*sum( s.probability * (e.cost_fixed_power_USDperkW * vPCAP[e, s] * 1000 
                                                 + e.cost_fixed_energy_USDperkWh * vECAP[e, s] * 1000) for e ∈ E, s ∈ S ))
 
     eCostPerPeriod =  @views mod[:eCostPerPeriod]

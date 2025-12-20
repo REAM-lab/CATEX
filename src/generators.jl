@@ -31,6 +31,7 @@ struct Generator
     generator:: String
     technology:: String
     bus:: String
+    site:: String
     cap_existing_power_MW:: Float64
     cap_max_power_MW:: Float64
     cost_fixed_power_USDperkW:: Float64
@@ -70,7 +71,7 @@ function load_data(inputs_dir::String)
     cf = to_structs(CapacityFactor, joinpath(inputs_dir, filename); add_id_col = false)
 
     # Transform capacity factor data into a multidimensional NamedArray
-    cf = to_multidim_array(cf, [:bus, :scenario, :timepoint], :capacity_factor)
+    cf = to_multidim_array(cf, [:site, :scenario, :timepoint], :capacity_factor; asNamedArray=true)
     println(" ok, loaded ", length(cf), " capacity factor entries.")
 
     return G, cf
@@ -89,7 +90,7 @@ function stochastic_capex_model!(sys, mod:: Model, gen_costs:: String)
         Power generation and capacity of these generators are considered random variables 
         in the second-stage of the stochastic problem.
     """
-    GV = filter(g -> g.name in names(cf, 1), G)
+    GV = filter(g -> g.site != "no_capacity_factor", G)
 
     """
     - GN is a vector of instances of generators without capacity factor profiles.
@@ -140,13 +141,13 @@ function stochastic_capex_model!(sys, mod:: Model, gen_costs:: String)
     # The weighted operational costs of running each generator
     if gen_costs == "quadratic"
     @expression(mod, eGenCostPerTp[t ∈ T],
-                        sum(g.c2 * vGEN[g, t]* vGEN[g, t] + g.c1 * vGEN[g, t] + g.c0 for g ∈ GN) + 
-                        1/length(S) * sum(s.prob * (g.c2 * vGENV[g, s, t]* vGENV[g, s, t] + g.c1 * vGENV[g, s, t] + g.c0 ) for g ∈ GV, s ∈ S))
+                        sum(g.c2_USDperMWh2 * vGEN[g, t]* vGEN[g, t] + g.c1_USDperMWh * vGEN[g, t] + g.c0_USD for g ∈ GN) + 
+                        1/length(S) * sum(s.probability * (g.c2_USDperMWh2 * vGENV[g, s, t]* vGENV[g, s, t] + g.c1_USDperMWh * vGENV[g, s, t] + g.c0_USD ) for g ∈ GV, s ∈ S))
 
     elseif gen_costs == "linear"
     @expression(mod, eGenCostPerTp[t ∈ T],
                         sum(g.cost_variable_USDperMWh * vGEN[g, t] for g ∈ GN) + 
-                        1/length(S) * sum(s.prob * g.cost_variable_USDperMWh * vGENV[g, s, t] for g ∈ GV, s ∈ S))
+                        1/length(S) * sum(s.probability * g.cost_variable_USDperMWh * vGENV[g, s, t] for g ∈ GV, s ∈ S))
     end
     
     eCostPerTp =  @views mod[:eCostPerTp]
@@ -156,7 +157,7 @@ function stochastic_capex_model!(sys, mod:: Model, gen_costs:: String)
     # Fixed costs 
     @expression(mod, eGenCostPerPeriod,
                     sum(g.cost_fixed_power_USDperkW * vCAP[g] * 1000 for g ∈ GN) 
-                    + 1/length(S) * sum( (s.prob * g.cost_fixed_power_USDperkW * vCAPV[g, s] * 1000) for g ∈ GV, s ∈ S ))
+                    + 1/length(S) * sum( (s.probability * g.cost_fixed_power_USDperkW * vCAPV[g, s] * 1000) for g ∈ GV, s ∈ S ))
 
     eCostPerPeriod =  @views mod[:eCostPerPeriod]
     unregister(mod, :eCostPerPeriod)

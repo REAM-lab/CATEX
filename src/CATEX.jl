@@ -14,17 +14,17 @@ include("utils.jl")
 include("scenarios.jl")
 include("transmission.jl")
 include("generators.jl")
-include("energy_storage.jl")
+include("storage.jl")
 include("timescales.jl")
 include("policies.jl")
 
 
 # Use internal modules
-using .Utils, .Scenarios, .Transmission, .Generators, .EnergyStorage, .Timescales, .Policies
+using .Utils, .Scenarios, .Transmission, .Generators, .Storage, .Timescales, .Policies
 
 # Export the functions we want users to be able to access easily
 export init_system, solve_stochastic_capex_model, run_stocapex
-export System, Scenario, Bus, Load, Generator, CapacityFactor, Line, EnergyStorageUnit, Timepoint, Timeseries, Policy
+export System, Scenario, Bus, Load, Generator, CapacityFactor, Line, StorageUnit, Timepoint, Timeseries, Policy
 
 """
 System represents the entire power system for the stochastic capacity expansion problem.
@@ -35,7 +35,7 @@ System represents the entire power system for the stochastic capacity expansion 
 - G: Vector containing instances of Generator structure
 - cf: multidimensional array of capacity factors data
 - L: Vector containing instances of Line structure
-- E: Vector containing instances of EnergyStorage structure
+- E: Vector containing instances of StorageUnit structure
 - T: Vector containing instances of Timepoint structure
 """
 struct System
@@ -43,11 +43,11 @@ struct System
     T:: Vector{Timepoint}
     TS:: Vector{Timeseries}
     N:: Vector{Bus}
-    load:: NamedArray{Union{Missing, Float64}}
+    load:: Array{Union{Missing, Float64}}
     G:: Vector{Generator}
     cf:: NamedArray{Union{Missing, Float64}}
     L:: Vector{Line}
-    E:: Vector{EnergyStorageUnit}
+    E:: Vector{StorageUnit}
     policies:: Policy
 end
 
@@ -55,14 +55,14 @@ end
 This function defines how to display the System struct in the REPL or when printed in Julia console.
 """
 function Base.show(io::IO, ::MIME"text/plain", sys::System)
-    println(io, "Catex system:")
-    println(io, "   ├ N (buses) = ", getfield.(sys.N, :name))
-    println(io, "   ├ L (lines) = ", getfield.(sys.L, :name))
-    println(io, "   ├ G (generators) = ", getfield.(sys.G, :name))
-    println(io, "   ├ E (energy storages) = ", getfield.(sys.E, :name))
-    println(io, "   ├ S (scenarios) = ", getfield.(sys.S, :name))
-    println(io, "   ├ T (timepoints) = ", getfield.(sys.T, :name))
-    println(io, "   ├ TS (timeseries) = ", getfield.(sys.TS, :name))
+    println(io, "CATEX system:")
+    println(io, "   ├ N (buses) = [", getfield.(sys.N, :bus)[1], ", ... ,", getfield.(sys.N, :bus)[end], "]")
+    println(io, "   ├ L (lines) = [", getfield.(sys.L, :line)[1], ", ... ,", getfield.(sys.L, :line)[end], "]")
+    println(io, "   ├ G (generators) = [", getfield.(sys.G, :generator)[1], ", ... ,", getfield.(sys.G, :generator)[end], "]")
+    println(io, "   ├ E (storage) = [", getfield.(sys.E, :storage)[1], ", ... ,", getfield.(sys.E, :storage)[end], "]")
+    println(io, "   ├ S (scenarios) = ", getfield.(sys.S, :scenario))
+    println(io, "   ├ T (timepoints) = [", getfield.(sys.T, :timepoint)[1], ", ... ,", getfield.(sys.T, :timepoint)[end], "]")
+    println(io, "   ├ TS (timeseries) = ", getfield.(sys.TS, :timeseries))
     println(io, "   ├ Policies: ", fieldnames(Policy))
     println(io, "   ├ Loads.")
     println(io, "   └ Capacity factors.")
@@ -84,13 +84,13 @@ function init_system(;main_dir = pwd())
     
     S = Scenarios.load_data(inputs_dir)
 
-    N, L, load = Transmission.load_data(inputs_dir)
+    T, TS = Timescales.load_data(inputs_dir)
+
+    N, L, load = Transmission.load_data(inputs_dir, S, T)
 
     G, cf = Generators.load_data(inputs_dir)
 
-    E = EnergyStorage.load_data(inputs_dir)
-
-    T, TS = Timescales.load_data(inputs_dir)
+    E = Storage.load_data(inputs_dir)
 
     policies = Policies.load_data(joinpath(main_dir, "inputs"))
      
@@ -124,8 +124,8 @@ function solve_stochastic_capex_model(sys ;main_dir = pwd(),
     tep = @elapsed Generators.stochastic_capex_model!(sys, mod, gen_costs)
     println(" ok [$(round(tep, digits = 3)) seconds].")
 
-    print(" > Energy storage vars and constraints ... ")
-    tep = @elapsed EnergyStorage.stochastic_capex_model!(sys, mod)
+    print(" > Storage vars and constraints ... ")
+    tep = @elapsed Storage.stochastic_capex_model!(sys, mod)
     println(" ok [$(round(tep, digits = 3)) seconds].")
 
     print(" > Transmission vars and constraints ... ")
@@ -179,7 +179,7 @@ function print_stochastic_capex_results(sys, mod:: Model; main_dir = pwd())
     println("> Printing files in $outputs_dir")
     
     Generators.toCSV_stochastic_capex(sys, mod, outputs_dir)
-    EnergyStorage.toCSV_stochastic_capex(sys, mod, outputs_dir)
+    Storage.toCSV_stochastic_capex(sys, mod, outputs_dir)
     Transmission.toCSV_stochastic_capex(sys, mod, outputs_dir)
 
     # Print cost expressions

@@ -37,11 +37,18 @@ Load represents the load demand at a specific bus, scenario, and timepoint.
 - t_id: ID of the timepoint
 - load_MW: load demand in megawatts (MW)
 """
-struct Load
+mutable struct Load
     bus:: String
     scenario:: String
     timepoint:: String
     load_MW:: Float64
+    bus_id:: Int64
+    scenario_id:: Int64
+    timepoint_id:: Int64
+end
+
+function Load(bus, scenario, timepoint, load_MW; bus_id=0, scenario_id=0, timepoint_id=0)
+    return Load(bus, scenario, timepoint, load_MW, bus_id, scenario_id, timepoint_id)
 end
 
 """
@@ -80,7 +87,7 @@ end
 """
 Load bus data from a CSV file and return it as a NamedArray of Bus structures.
 """
-function load_data(inputs_dir:: String)
+function load_data(inputs_dir:: String, S, T)
 
     filename = "buses.csv"
     print(" > $filename ...")
@@ -102,9 +109,17 @@ function load_data(inputs_dir:: String)
     filename = "loads.csv"
     print(" > $filename ...")
     load = to_structs(Load, joinpath(inputs_dir, filename); add_id_col = false)
+
+    for l in load
+        # Find ids of bus, scenario, and timepoint from load instance
+        l.bus_id = findfirst(n -> n.bus == l.bus, N)
+        l.scenario_id = findfirst(s -> s.scenario == l.scenario, S)
+        l.timepoint_id = findfirst(t -> t.timepoint == l.timepoint, T)
+    end
+
     
     # Transform load data into a multidimensional NamedArray
-    load = to_multidim_array(load, [:bus, :scenario, :timepoint], :load_MW)
+    load = to_multidim_array(load, [:bus_id, :scenario_id, :timepoint_id], :load_MW)
     println(" ok, loaded ", length(load), " load entries.")
 
     return N, L, load
@@ -192,8 +207,8 @@ function get_maxFlow(N:: Vector{Bus}, L:: Vector{Line}):: Vector{Float64}
         from_bus = findfirst(n -> n.bus == line.bus_from, N)
         to_bus = findfirst(n -> n.bus == line.bus_to, N)
 
-        maxFlow[from_bus] += line.rate_MW
-        maxFlow[to_bus] += line.rate_MW
+        maxFlow[from_bus] += line.rating_MVA
+        maxFlow[to_bus] += line.rating_MVA
 
     end
 
@@ -235,16 +250,16 @@ function stochastic_capex_model!(sys, mod:: Model)
     @constraint(mod, cMaxFlowPerLine[l ∈ L, s ∈ S, t ∈ T; l.rating_MVA>0],
                 -l.rating_MVA ≤ 100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) ≤ +l.rating_MVA)
 
-    @constraint(mod, cMaxDiffAngle[l ∈ L, s ∈ S, t ∈ T; l.angmax_deg<360],
-                            (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t])  ≤ l.angmax_deg * pi/180)
+    @constraint(mod, cMaxDiffAngle[l ∈ L, s ∈ S, t ∈ T; l.angle_max_deg<360],
+                            (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t])  ≤ l.angle_max_deg * pi/180)
 
-    @constraint(mod, cMinDiffAngle[l ∈ L, s ∈ S, t ∈ T; l.angmin_deg>-360],
-                            l.angmin_deg * pi/180 ≤ (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) )
+    @constraint(mod, cMinDiffAngle[l ∈ L, s ∈ S, t ∈ T; l.angle_min_deg>-360],
+                            l.angle_min_deg * pi/180 ≤ (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) )
     
     # Power balance at each bus
     @constraint(mod, cGenBalance[n ∈ N, s ∈ S, t ∈ T], 
                     eGenAtBus[n, s, t] + eNetDischargeAtBus[n, s, t] ≥ 
-                    load[n.name, s.name, t.name] + eFlowAtBus[n, s, t])    
+                    load[n.id, s.id, t.id] + eFlowAtBus[n, s, t])    
 
 end
 
@@ -258,7 +273,7 @@ function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     angle_df = to_df(mod[:vTHETA], [:bus, :scenario, :timepoint, :rad])
 
     # Join
-    df = rightjoin(lines_df, angle_df, on=[:bus_from => :bus, :scenario, :timepoint])
+    df = rightjoin(lines_df, angle_df, on=[:bus_from => :bus])
     dropmissing!(df) # drop rows with missing values
     rename!(df, [:rad => :bus_from_angle]) # rename col
 
