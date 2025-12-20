@@ -38,15 +38,15 @@ end
 mutable struct Timeseries
     id:: Int64
     timeseries:: String
-    duration_of_timepoints:: Float64
-    number_timepoints:: Int64
+    timepoint_duration_hrs:: Float64
+    number_of_timepoints:: Int64
     timeseries_scale_to_period:: Float64
     timepoints_ids:: Vector{Int64}
 end 
 
 # Default values for Timeseries
-function Timeseries(id, timeseries, duration_of_timepoints, number_timepoints, timeseries_scale_to_period; timepoints_ids = Vector{Int64}())
-       return Timeseries(id, timeseries, duration_of_timepoints, number_timepoints, timeseries_scale_to_period, timepoints_ids)
+function Timeseries(id, timeseries, timepoint_duration_hrs, number_of_timepoints, timeseries_scale_to_period; timepoints_ids = Vector{Int64}())
+       return Timeseries(id, timeseries, timepoint_duration_hrs, number_of_timepoints, timeseries_scale_to_period, timepoints_ids)
 end
 
 function load_data(inputs_dir:: String)
@@ -54,12 +54,12 @@ function load_data(inputs_dir:: String)
     filename = "timepoints.csv"
     print(" > $filename ...")
     T = to_structs(Timepoint, joinpath(inputs_dir, filename))
-    println(" ok.")
+    println(" ok, loaded ", length(T), " timepoints.")
 
     filename = "timeseries.csv"
     print(" > $filename ...")
     TS = to_structs(Timeseries, joinpath(inputs_dir, filename))
-    println(" ok.")
+    println(" ok, loaded ", length(TS), " timeseries.")
 
     print(" > Timescale calculations ...")
     for t in T
@@ -67,7 +67,7 @@ function load_data(inputs_dir:: String)
         t.timeseries_id = findfirst(x -> x.timeseries == t.timeseries, TS)
 
         # Duration (hrs) for each timepoint
-        t.duration_hrs = (TS[t.timeseries_id]).duration_of_timepoints 
+        t.duration_hrs = (TS[t.timeseries_id]).timepoint_duration_hrs 
 
         # Weight for each timepoint
         t.weight = t.duration_hrs * (TS[t.timeseries_id]).timeseries_scale_to_period

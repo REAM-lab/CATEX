@@ -85,7 +85,7 @@ function load_data(inputs_dir:: String)
     filename = "buses.csv"
     print(" > $filename ...")
     N = to_structs(Bus, joinpath(inputs_dir, filename))
-    println(" ok.")
+    println(" ok, loaded ", length(N), " buses.")
 
     filename = "lines.csv"
     print(" > $filename ...")
@@ -96,7 +96,7 @@ function load_data(inputs_dir:: String)
         l.bus_id_from = findfirst(n -> n.bus == l.bus_from, N)
         l.bus_id_to = findfirst(n -> n.bus == l.bus_to, N)
     end
-    println(" ok.")
+    println(" ok, loaded ", length(L), " lines.")
 
     # Load load data
     filename = "loads.csv"
@@ -105,7 +105,7 @@ function load_data(inputs_dir:: String)
     
     # Transform load data into a multidimensional NamedArray
     load = to_multidim_array(load, [:bus, :scenario, :timepoint], :load_MW)
-    println(" ok.")
+    println(" ok, loaded ", length(load), " load entries.")
 
     return N, L, load
 end

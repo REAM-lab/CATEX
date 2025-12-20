@@ -2,7 +2,7 @@
 
 julia_version = "1.12.2"
 manifest_format = "2.0"
-project_hash = "d952e726be8059d1372850267edca4cb9df8e76b"
+project_hash = "46ef2c951b8b8f96c5cf89cc96dd401be9738f98"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "8b2b045b22740e4be20654175cc38291d48539db"
@@ -91,17 +91,17 @@ git-tree-sha1 = "1b96ea4a01afe0ea4090c5c8039690672dd13f2e"
 uuid = "6e34b625-4abd-537c-b88f-471c36dfa7a0"
 version = "1.0.9+0"
 
+[[deps.CATEX]]
+deps = ["BenchmarkTools", "CSV", "DataFrames", "Infiltrator", "JuMP", "Mosek", "MosekTools", "NamedArrays", "PowerModels", "Revise", "Tables"]
+path = "."
+uuid = "2f3e339c-8e95-4fd8-9255-42e559e5e09b"
+version = "0.1.0"
+
 [[deps.CSV]]
 deps = ["CodecZlib", "Dates", "FilePathsBase", "InlineStrings", "Mmap", "Parsers", "PooledArrays", "PrecompileTools", "SentinelArrays", "Tables", "Unicode", "WeakRefStrings", "WorkerUtilities"]
 git-tree-sha1 = "deddd8725e5e1cc49ee205a1964256043720a6c3"
 uuid = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 version = "0.10.15"
-
-[[deps.Catex]]
-deps = ["BenchmarkTools", "CSV", "DataFrames", "Infiltrator", "JuMP", "Mosek", "MosekTools", "NamedArrays", "PowerModels", "Revise", "Tables"]
-path = "."
-uuid = "2f3e339c-8e95-4fd8-9255-42e559e5e09b"
-version = "0.1.0"
 
 [[deps.CodeTracking]]
 deps = ["InteractiveUtils", "UUIDs"]
@@ -348,9 +348,9 @@ version = "1.11.0"
 
 [[deps.Infiltrator]]
 deps = ["InteractiveUtils", "Markdown", "REPL", "UUIDs"]
-git-tree-sha1 = "2e5ea5941ee30a3864fc19da3865d1c53e381db1"
+git-tree-sha1 = "18f1522abfbf83510c31aa614c3a98bcff4b9e01"
 uuid = "5903a43b-9cc3-4c30-8d17-598619ec4e9b"
-version = "1.9.5"
+version = "1.9.6"
 
 [[deps.InfrastructureModels]]
 deps = ["JuMP", "Memento"]

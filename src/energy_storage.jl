@@ -45,7 +45,7 @@ function load_data(inputs_dir::String)
     filename = "energy_storage.csv"
     print(" > $filename ...")
     E = to_structs(EnergyStorageUnit, joinpath(inputs_dir, filename))
-    println(" ok.")
+    println(" ok, loaded ", length(E), " energy storage units.")
 
     return E
 end

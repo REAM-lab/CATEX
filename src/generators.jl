@@ -62,7 +62,7 @@ function load_data(inputs_dir::String)
     filename = "generators.csv"
     print(" > $filename ...")
     G = to_structs(Generator, joinpath(inputs_dir, filename))
-    println(" ok.")
+    println(" ok, loaded ", length(G), " generators.")
 
     # Load capacity factor data
     filename = "capacity_factors.csv"
@@ -71,7 +71,7 @@ function load_data(inputs_dir::String)
 
     # Transform capacity factor data into a multidimensional NamedArray
     cf = to_multidim_array(cf, [:bus, :scenario, :timepoint], :capacity_factor)
-    println(" ok.")
+    println(" ok, loaded ", length(cf), " capacity factor entries.")
 
     return G, cf
 end

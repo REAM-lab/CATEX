@@ -20,8 +20,8 @@ Scenario represents a scenario in the stochastic capacity expansion problem.
 """
 struct Scenario
     id:: Int64
-    name:: String
-    prob:: Float64
+    scenario:: String
+    probability:: Float64
 end
 
 function load_data(inputs_dir:: String)
@@ -30,7 +30,7 @@ function load_data(inputs_dir:: String)
     filename = "scenarios.csv"
     print(" > $filename ...")
     S = to_structs(Scenario, joinpath(inputs_dir, filename))
-    println(" ok.")
+    println(" ok, loaded ", length(S), " scenarios.")
     
     return S
 end

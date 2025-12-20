@@ -4,7 +4,7 @@ A Julia package for modeling capacity expansion and operational
 optimization. Originally developed for the state of California,
 it can be adapted for other regions.
 """
-module Catex
+module CATEX
 
 # Import Julia packages
 using CSV, DataFrames, JuMP, MosekTools, NamedArrays
@@ -16,12 +16,11 @@ include("transmission.jl")
 include("generators.jl")
 include("energy_storage.jl")
 include("timescales.jl")
-include("climate.jl")
 include("policies.jl")
 
 
 # Use internal modules
-using .Utils, .Scenarios, .Transmission, .Generators, .EnergyStorage, .Timescales, .Climate, .Policies
+using .Utils, .Scenarios, .Transmission, .Generators, .EnergyStorage, .Timescales, .Policies
 
 # Export the functions we want users to be able to access easily
 export init_system, solve_stochastic_capex_model, run_stocapex
@@ -206,4 +205,4 @@ function run_stocapex(; main_dir = pwd(),
     return sys, mod
 end
 
-end # module Catex
+end # module CATEX
