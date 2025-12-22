@@ -1,2 +1,2 @@
-es_name,sc_name,tp_name,SOC_MWh
-1,sc1,1,0.0
+storage,scenario,timepoint,SOC_MWh
+cats_1,sc1,1,0.0

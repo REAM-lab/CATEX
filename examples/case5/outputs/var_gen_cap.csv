@@ -1,4 +1,4 @@
-gen_name,sc_name,GenCapacity
+generator,scenario,GenCapacity
 1,sc1,40.0
 2,sc1,170.0
 3,sc1,520.0

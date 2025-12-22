@@ -32,7 +32,8 @@ using CSV, DataFrames, MosekTools, PowerModels, CATEX, JuMP
 
 # Run PowerModels (write CaliforniaTestSystem.m  or  case5.m, in joinpath below)
 # -----------------------------------------------------------
-data = PowerModels.parse_file(joinpath("test", "CaliforniaTestSystem.m"))
+dir = @__DIR__
+data = PowerModels.parse_file(joinpath(dir, "CaliforniaTestSystem.m"))
 solver = Mosek.Optimizer
 solution = PowerModels.solve_opf(data, DCPPowerModel, solver)
 objval = solution["objective"]
@@ -40,16 +41,17 @@ sol = solution["solution"]
 ngens = length(sol["gen"])
 pgen = [ 100*sol["gen"][string(i)]["pg"] for i in 1:ngens]
 
-df_pm = DataFrame(gen_name = 1:ngens, DispatchGen_MW_PowerModels = pgen)
+df_pm = DataFrame(generator = 1:ngens, DispatchGen_MW_PowerModels = pgen)
 
-# Run CATEX (write cats  or  case5)
-main_dir =joinpath("examples", "cats")
-sys, mod = run_stocapex(; main_dir = main_dir, solver = Mosek.Optimizer, print_model = false) 
-df_catex = CSV.read(joinpath(main_dir, "outputs", "var_gen_dispatch.csv"), DataFrame; select = [:gen_name, :DispatchGen_MW])
+# Run CATEX (write cats_1h  or  case5)
+parent_directory = dirname(@__DIR__)
+main_dir =joinpath(parent_directory, "examples", "cats_1h")
+sys, mod = run_stocapex(; main_dir = main_dir, solver = Mosek.Optimizer, print_model = false, gen_costs = "quadratic") 
+df_catex = CSV.read(joinpath(main_dir, "outputs", "var_gen_dispatch.csv"), DataFrame; select = [:generator, :DispatchGen_MW])
 rename!(df_catex, "DispatchGen_MW" => "DispatchGen_MW_catex")
 
 # Compare both results
 diff_objvalue = (value(mod[:eTotalCost]) - value(objval))/value(objval) *100
-df_compare = innerjoin(df_pm, df_catex, on = [:gen_name])
+df_compare = innerjoin(df_pm, df_catex, on = [:generator])
 df_compare.diff = df_compare.DispatchGen_MW_catex - df_compare.DispatchGen_MW_PowerModels
 describe(df_compare[:, ["diff"]])

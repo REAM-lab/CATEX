@@ -1,2 +1,2 @@
-﻿name,duration_of_tps,num_tps,ts_scale_to_period
+﻿timeseries,timepoint_duration_hr,number_of_timepoints,timeseries_scale_to_period
 winter,1,1,1

@@ -1,6 +1,2 @@
-﻿gen_name,sc_name,tp_name,capacity_factor
-1,sc1,1,1
-2,sc1,1,1
-3,sc1,1,1
-4,sc1,1,1
-5,sc1,1,1
+﻿site,scenario,timepoint,capacity_factor
+cf_one,sc1,1,1

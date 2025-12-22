@@ -1,3 +1,7 @@
+"""
+Objective function value: 752076.861
+"""
+
 # Use Julia package
 using CATEX, MosekTools
 using Profile
