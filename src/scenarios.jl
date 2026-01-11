@@ -27,10 +27,11 @@ end
 function load_data(inputs_dir:: String)
         
     # Load scenarios using CSV files
+    start_time = time() 
     filename = "scenarios.csv"
-    print(" > $filename ...")
+    println(" > $filename ...")
     S = to_structs(Scenario, joinpath(inputs_dir, filename))
-    println(" ok, loaded ", length(S), " scenarios.")
+    println("   └ Completed, loaded: ", length(S), " scenarios. Elapsed time ", round(time() - start_time, digits=2), " seconds.")
     
     return S
 end

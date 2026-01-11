@@ -65,19 +65,21 @@ end
 function load_data(inputs_dir::String)
 
     # Load generator data from CSV file
+    start_time = time()
     filename = "generators.csv"
-    print(" > $filename ...")
+    println(" > $filename ...")
     G = to_structs(Generator, joinpath(inputs_dir, filename))
-    println(" ok, loaded ", length(G), " generators.")
+    println("   └ Completed, loaded ", length(G), " generators. Elapsed time ", round(time() - start_time, digits=2), " seconds.")
 
     # Load capacity factor data
+    start_time = time()
     filename = "capacity_factors.csv"
-    print(" > $filename ...")
+    println(" > $filename ...")
     cf = to_structs(CapacityFactor, joinpath(inputs_dir, filename); add_id_col = false)
-
+   
     # Transform capacity factor data into a multidimensional NamedArray
     cf = to_multidim_array(cf, [:site, :scenario, :timepoint], :capacity_factor; asNamedArray=true)
-    println(" ok, loaded ", length(cf), " capacity factor entries.")
+    println("   └ Completed, loaded ", length(cf), " capacity factor entries. Elapsed time ", round(time() - start_time, digits=2), " seconds.")
 
     # Extra calculations or checks can be added here
     for g in G
@@ -213,13 +215,13 @@ function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     end
 
     # Print cost expressions
-    filename = "gen_costs_itemized.csv"
+    filename = "generator_costs_summary.csv"
     costs =  DataFrame(component  = ["CostPerTimepoint_USD", "CostPerPeriod_USD", "TotalCost_USD"], 
                             cost  = [   value(sum(t.weight * mod[:eGenCostPerTp][t] for t in sys.T)), 
                                         value(mod[:eGenCostPerPeriod]), 
                                         value(mod[:eGenTotalCost])]) 
     CSV.write(joinpath(outputs_dir, filename), costs)
-    println(" > $filename printed.")
+    println("   - $filename printed.")
 
 end
 

@@ -51,10 +51,11 @@ end
 function load_data(inputs_dir::String)
 
     # Load energy storage units using CSVs
+    start_time = time() 
     filename = "storage.csv"
-    print(" > $filename ...")
+    println(" > $filename ...")
     E = to_structs(StorageUnit, joinpath(inputs_dir, filename))
-    println(" ok, loaded ", length(E), " storage units.")
+    println(" └ Completed, loaded ", length(E), " storage units. Elapsed time ", round(time() - start_time, digits=2), " seconds.")
 
     # Extra calculations or checks can be added here
     for e in E
@@ -74,7 +75,7 @@ function stochastic_capex_model!(sys, mod:: Model)
     E = @views sys.E
 
     # Filter energy storage units by bus
-    E_AT_BUS = [filter(e -> e.bus == n.bus, E) for n in N]
+    E_AT_BUS = [filter(e -> e.bus == n.name, E) for n in N]
 
     # Define generation variables
     # vCHARGE: power discharged from the storage system (MW)
@@ -133,7 +134,7 @@ function stochastic_capex_model!(sys, mod:: Model)
 
     # Storage cost per timepoint
     @expression(mod, eStorCostPerTp[t ∈ T],
-                     1/length(S)*(sum(s.probability * e.cost_variable_USDperMWh * vCHARGE[e, s, t] for e ∈ E, s ∈ S) ) )
+                     1/length(S)*(sum(s.probability * e.cost_variable_USDperMWh * (vCHARGE[e, s, t] + vDISCHA[e, s, t]) for e ∈ E, s ∈ S) ) )
     
     eCostPerTp =  @views mod[:eCostPerTp]
     unregister(mod, :eCostPerTp)
@@ -158,33 +159,37 @@ end
 function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
 
     # Print vCHARGE AND vDISCHARGE 
-    df1 = to_df(mod[:vCHARGE], [:storage, :scenario, :timepoint, :Charge_MW])
+    df1 = to_df(mod[:vCHARGE], [:storage, :scenario, :timepoint, :charge_MW]; struct_fields = [:name, :name, :name])
 
-    df2 = to_df(mod[:vDISCHA], [:storage, :scenario, :timepoint, :Discharge_MW])
+    df2 = to_df(mod[:vDISCHA], [:storage, :scenario, :timepoint, :discharge_MW]; struct_fields = [:name, :name, :name])
     
-    df_mix1 = outerjoin(df1, df2, on=[:storage, :scenario, :timepoint])
-    CSV.write(joinpath(outputs_dir, "storage_dispatch.csv"), df_mix1)
+    df3 = to_df(mod[:vSOC], [:storage, :scenario, :timepoint, :state_of_charge_MWh]; struct_fields = [:name, :name, :name])
 
-    to_df(mod[:vSOC], [:storage, :scenario, :timepoint, :SOC_MWh];
-                    csv_dir = joinpath(outputs_dir, "storage_soc.csv"))
+    df_mix1 = outerjoin(df1, df2, on=[:storage, :scenario, :timepoint])
+
+    df_mix1 = outerjoin(df_mix1, df3, on=[:storage, :scenario, :timepoint])
+
+    CSV.write(joinpath(outputs_dir, "storage_dispatch.csv"), df_mix1)
+    println("   - storage_dispatch.csv printed.")
     
     # Print vGENV variable solution
-    df1 = to_df(mod[:vPCAP], [:storage, :scenario, :PowerCap_MW])
+    df1 = to_df(mod[:vPCAP], [:storage, :scenario, :power_capacity_MW]; struct_fields = [:name, :name])
 
     # Print vCAPV variable solution
-    df2 = to_df(mod[:vECAP], [:storage, :scenario, :EnergyCap_MWh])
+    df2 = to_df(mod[:vECAP], [:storage, :scenario, :energy_capacity_MWh]; struct_fields = [:name, :name])
 
     df_mix1 = outerjoin(df1, df2, on=[:storage, :scenario])
     CSV.write(joinpath(outputs_dir, "storage_capacity.csv"), df_mix1)
+    println("   - storage_capacity.csv printed.")
 
     # Print cost expressions
-    filename = "storage_costs_itemized.csv"
-    costs =  DataFrame(component  = ["CostPerTimepoint", "CostPerPeriod", "TotalCost"], 
+    filename = "storage_costs_summary.csv"
+    costs =  DataFrame(component  = ["CostPerTimepoint_USD", "CostPerPeriod_USD", "TotalCost_USD"], 
                             cost  = [   value(sum(mod[:eStorCostPerTp][t] * t.weight for t in sys.T)), 
                                         value(mod[:eStorCostPerPeriod]), 
                                         value(mod[:eStorTotalCost])]) 
     CSV.write(joinpath(outputs_dir, filename), costs)
-    println(" > $filename printed.")
+    println("   - $filename printed.")
 
 end
 

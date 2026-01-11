@@ -82,7 +82,7 @@ mutable struct Line
 end
 
 # Default values for Line
-function Line(id, name, from_bus, to_bus, cap_existing_power_MW, cost_fixed_power_USDperkW, r_pu, x_pu, g_pu, b_pu, angle_max_deg, angle_min_deg, expand_capacity; bus_id_from=0, bus_id_to=0)
+function Line(id, name, from_bus, to_bus, cap_existing_power_MW, r_pu, x_pu, g_pu, b_pu, angle_max_deg, angle_min_deg, expand_capacity; bus_id_from=0, bus_id_to=0, cost_fixed_power_USDperkW=0.0)
        return Line(id, name, from_bus, to_bus, cap_existing_power_MW, cost_fixed_power_USDperkW, r_pu, x_pu, g_pu, b_pu, angle_max_deg, angle_min_deg, expand_capacity, bus_id_from, bus_id_to)
 end
 
@@ -91,26 +91,29 @@ Load bus data from a CSV file and return it as a NamedArray of Bus structures.
 """
 function load_data(inputs_dir:: String, S, T)
 
+    start_time = time()
     filename = "buses.csv"
-    print(" > $filename ...")
+    println(" > $filename ...")
     N = to_structs(Bus, joinpath(inputs_dir, filename))
-    println(" ok, loaded ", length(N), " buses.")
+    println("   └ Completed, loaded ", length(N), " buses. Elapsed time ", round(time() - start_time, digits=2), " seconds.")
 
+    start_time = time()
     filename = "lines.csv"
-    print(" > $filename ...")
+    println(" > $filename ...")
     L = to_structs(Line, joinpath(inputs_dir, filename))
-
+    println("   └ Completed, loaded ", length(L), " lines. Elapsed time ", round(time() - start_time, digits=2), " seconds.")
     for l in L
         # Find ids of from_bus and to_bus from line instance
         l.bus_id_from = findfirst(n -> n.name == l.from_bus, N)
         l.bus_id_to = findfirst(n -> n.name == l.to_bus, N)
     end
-    println(" ok, loaded ", length(L), " lines.")
 
     # Load load data
+    start_time = time()
     filename = "loads.csv"
-    print(" > $filename ...")
+    println(" > $filename ...")
     load = to_structs(Load, joinpath(inputs_dir, filename); add_id_col = false)
+    println("   └ Completed, loaded ", length(load), " load entries. Elapsed time ", round(time() - start_time, digits=2), " seconds.")
 
     for l in load
         # Find ids of bus, scenario, and timepoint from load instance
@@ -131,8 +134,7 @@ function load_data(inputs_dir:: String, S, T)
     
     # Transform load data into a multidimensional NamedArray
     #load = to_multidim_array(load, [:bus_id, :scenario_id, :timepoint_id], :load_MW)
-    println(" ok, loaded ", length(load), " load entries.")
-
+    
     return N, L, load
 end
 
@@ -254,7 +256,7 @@ function stochastic_capex_model!(sys, mod:: Model)
     eNetDischargeAtBus = mod[:eNetDischargeAtBus]
     
     # DC Power flow transfered from each bus, assumes sbase = 100 MVA for all lines
-    N_at_bus = Dict(n.id => [N[k] for k in N if ( (B[n.id, k.id] != 0) && (n.id != k.id))] for n in N) # dictionary to access bus neighors
+    N_at_bus = Dict(n.id => [N[k.id] for k in N if ( (B[n.id, k.id] != 0) && (n.id != k.id))] for n in N) # dictionary to access bus neighors
 
     @expression(mod, eFlowAtBus[n ∈ N, s ∈ S, t ∈ T], 
                     100 * sum(B[n.id, m.id] * (vTHETA[n, s, t] - vTHETA[m, s, t]) for m in N_at_bus[n.id]))
@@ -269,7 +271,7 @@ function stochastic_capex_model!(sys, mod:: Model)
                 100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) ≤ +l.cap_existing_power_MW + vCAPL[l] )
 
     @constraint(mod, cMinFlowPerLine[l ∈ L, s ∈ S, t ∈ T; (l.cap_existing_power_MW>0) || (l.expand_capacity==true)],
-            -100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) >= -(l.cap_existing_power_MW + vCAPL[l]) )
+            100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) >= -(l.cap_existing_power_MW + vCAPL[l]) )
 
     @constraint(mod, cMaxDiffAngle[l ∈ L, s ∈ S, t ∈ T; (l.angle_max_deg<360)],
                            (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t])  ≤ l.angle_max_deg * pi/180)
@@ -306,12 +308,12 @@ function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     angle_df = to_df(mod[:vTHETA], [:bus, :scenario, :timepoint, :rad]; struct_fields=[:name, :name, :name])
 
     # Join
-    df = rightjoin(lines_df, angle_df, on=[:bus_from => :bus])
+    df = rightjoin(lines_df, angle_df, on=[:from_bus => :bus])
     dropmissing!(df) # drop rows with missing values
     rename!(df, [:rad => :bus_from_angle]) # rename col
 
     # Join
-    df = rightjoin(df, angle_df, on=[:bus_to => :bus, :scenario, :timepoint])
+    df = rightjoin(df, angle_df, on=[:to_bus => :bus, :scenario, :timepoint])
     dropmissing!(df) # drop rows with missing values
     rename!(df, [:rad => :bus_to_angle]) # rename col
 
@@ -323,7 +325,7 @@ function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     select!(df, Not(:y_pu, :r_pu, :x_pu, :g_pu, :b_pu))
     
     filename = "line_flows.csv"
-    println(" > $filename printed.")
+    println("   - $filename printed.")
     CSV.write(joinpath(outputs_dir, filename), df)
 end
    

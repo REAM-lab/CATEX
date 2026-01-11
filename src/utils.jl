@@ -111,7 +111,7 @@ function to_df(var_name:: JuMP.Containers.DenseAxisArray,
     # Print csv file in the directory csv_dir
     if !isnothing(csv_dir)
         CSV.write(csv_dir, df)
-        println(" > $(basename(csv_dir)) printed.")
+        println("   - $(basename(csv_dir)) printed.")
     end
 
     return df # return the dataframe 

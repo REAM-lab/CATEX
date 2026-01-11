@@ -1,6 +1,0 @@
-﻿bus,bus_type,unused_node,voltage_kV
-1,slack,FALSE,220
-2,PQ,FALSE,220
-3,PQ,FALSE,220
-4,PQ,FALSE,220
-5,PQ,FALSE,220

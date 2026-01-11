@@ -122,28 +122,29 @@ function solve_stochastic_capex_model(sys, model_settings, main_dir, solver, sol
     # Initialize Costs for a timepoint
     @expression(mod, eCostPerTp[t ∈ sys.T], 0)
 
-    print(" > Generator vars and constraints ... ")
+    println(" > Generator vars and constraints ... ")
     tep = @elapsed Generators.stochastic_capex_model!(sys, mod,  model_settings)
-    println(" ok [$(round(tep, digits = 3)) seconds].")
+    println(" └ Completed [$(round(tep, digits = 3)) seconds].")
 
-    print(" > Storage vars and constraints ... ")
+    println(" > Storage vars and constraints ... ")
     tep = @elapsed Storage.stochastic_capex_model!(sys, mod)
-    println(" ok [$(round(tep, digits = 3)) seconds].")
+    println(" └ Completed [$(round(tep, digits = 3)) seconds].")
 
-    print(" > Transmission vars and constraints ... ")
+    println(" > Transmission vars and constraints ... ")
     tep = @elapsed Transmission.stochastic_capex_model!(sys, mod)
-    println(" ok [$(round(tep, digits = 3)) seconds].")
+    println(" └ Completed [$(round(tep, digits = 3)) seconds].")
 
-    print(" > Policy vars and constraints ... ")
+    println(" > Policy vars and constraints ... ")
     tep = @elapsed Policies.stochastic_capex_model!(sys, mod)
-    println(" ok [$(round(tep, digits = 3)) seconds].")
+    println(" └ Completed [$(round(tep, digits = 3)) seconds].")
 
-    print(" > Objective function ... ")
+    println(" > Objective function ... ")
     tep = @elapsed @expression(mod, eTotalCost, sum(mod[:eCostPerTp][t]*t.weight for t in sys.T) 
                                                     + mod[:eCostPerPeriod])
-    println(" ok [$(round(tep, digits = 3)) seconds].")
+    println(" └ Completed [$(round(tep, digits = 3)) seconds].")
 
-    @objective(mod, Min, eTotalCost)
+    @expression(mod, rescaling_factor_obj, 1e-6)  # Placeholder for potential rescaling
+    @objective(mod, Min, eTotalCost*rescaling_factor_obj)
 
     # Print model to a text file if print_model==true. 
     # By default, it is print_model is false.
@@ -156,18 +157,19 @@ function solve_stochastic_capex_model(sys, model_settings, main_dir, solver, sol
         end
     end
     total_time = round(time() - full_start_time; digits=2)
-    println("> Total: $total_time seconds.")
+    println("> Construction of model completed [$total_time seconds].")
 
-    println("> JuMP model completed. Starting optimization: ")
-                    
+    start_time = time()
+    println("> JuMP model completed. Starting optimization: ")                
     optimize!(mod)
 
     print("\n")
 
     mod_status = termination_status(mod)
-    mod_obj = round(value(eTotalCost); digits=3) 
+    mod_obj = round(objective_value(mod)/rescaling_factor_obj; digits=3) 
     println("> Optimization status: $mod_status")
-    println("> Objective function value: $mod_obj")
+    println("> Objective function value: $mod_obj USD")
+    println("> Optimization elapsed time: ", round(time() - start_time, digits=2), " seconds.\n")
     return mod
 
 end
@@ -179,21 +181,35 @@ function print_stochastic_capex_results(sys, mod:: Model, main_dir)
 
     # Define the outputs directory
     outputs_dir = joinpath(main_dir, "outputs")
+    if !isdir(outputs_dir)
+        mkdir(outputs_dir)
+    end
 
+    full_start_time = time()
     println("> Printing files in $outputs_dir")
     
-    Generators.toCSV_stochastic_capex(sys, mod, outputs_dir)
-    Storage.toCSV_stochastic_capex(sys, mod, outputs_dir)
-    Transmission.toCSV_stochastic_capex(sys, mod, outputs_dir)
+    println(" > Generators results ... ")
+    tep = @elapsed Generators.toCSV_stochastic_capex(sys, mod, outputs_dir)
+    println(" └ Completed [$(round(tep, digits = 3)) seconds].")
+
+    println(" > Storage results ... ")
+    tep = @elapsed Storage.toCSV_stochastic_capex(sys, mod, outputs_dir)
+    println(" └ Completed [$(round(tep, digits = 3)) seconds].")
+    println(" > Transmission results ... ")
+    tep = @elapsed Transmission.toCSV_stochastic_capex(sys, mod, outputs_dir)
+    println(" └ Completed [$(round(tep, digits = 3)) seconds].")
 
     # Print cost expressions
-    filename = "costs_itemized.csv"
+    start_time = time()
+    filename = "costs_summary.csv"
     costs =  DataFrame(component  = ["CostPerTimepoint", "CostPerPeriod", "TotalCost"], 
                             cost  = [   value(sum(t.weight * mod[:eCostPerTp][t] for t in sys.T)), 
                                         value(mod[:eCostPerPeriod]), 
                                         value(mod[:eTotalCost])]) 
     CSV.write(joinpath(outputs_dir, filename), costs)
-    println(" > $filename printed.")
+    println(" > $filename printed [", round(time() - start_time, digits=2), " seconds.]")
+
+    println(" Total printing time: ", round(time() - full_start_time, digits=2), " seconds.\n")
 
 end
 
@@ -203,9 +219,11 @@ function run_stocapex(; main_dir = pwd(),
                              print_model = false, 
                              model_settings = Dict("gen_costs" => "linear", "consider_shedding" => false))
     
+    start_time = time()
     sys = init_system(main_dir)
     mod = solve_stochastic_capex_model(sys, model_settings, main_dir, solver, solver_settings, print_model)
     print_stochastic_capex_results(sys, mod, main_dir)
+    println(">>> Run completed in ", round(time() - start_time, digits=2), " seconds.")
 
     return sys, mod
 end

@@ -51,15 +51,17 @@ end
 
 function load_data(inputs_dir:: String)
 
+    start_time = time()
     filename = "timepoints.csv"
-    print(" > $filename ...")
+    println(" > $filename ...")
     T = to_structs(Timepoint, joinpath(inputs_dir, filename))
-    println(" ok, loaded ", length(T), " timepoints.")
-
+    println("   └ Completed, loaded ", length(T), " timepoints. Elapsed time ", round(time() - start_time, digits=2), " seconds.")
+    
+    start_time = time()
     filename = "timeseries.csv"
-    print(" > $filename ...")
+    println(" > $filename ...")
     TS = to_structs(Timeseries, joinpath(inputs_dir, filename))
-    println(" ok, loaded ", length(TS), " timeseries.")
+    println("   └ Completed, loaded ", length(TS), " timeseries. Elapsed time ", round(time() - start_time, digits=2), " seconds.")
 
     print(" > Timescale calculations ...")
     for t in T
