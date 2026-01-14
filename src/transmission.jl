@@ -79,11 +79,12 @@ mutable struct Line
     expand_capacity:: Bool
     bus_id_from:: Int64
     bus_id_to:: Int64
+    max_flow_MW:: Union{Float64, Nothing}
 end
 
 # Default values for Line
-function Line(id, name, from_bus, to_bus, cap_existing_power_MW, r_pu, x_pu, g_pu, b_pu, angle_max_deg, angle_min_deg, expand_capacity; bus_id_from=0, bus_id_to=0, cost_fixed_power_USDperkW=0.0)
-       return Line(id, name, from_bus, to_bus, cap_existing_power_MW, cost_fixed_power_USDperkW, r_pu, x_pu, g_pu, b_pu, angle_max_deg, angle_min_deg, expand_capacity, bus_id_from, bus_id_to)
+function Line(id, name, from_bus, to_bus, cap_existing_power_MW, r_pu, x_pu, g_pu, b_pu, angle_max_deg, angle_min_deg, expand_capacity; bus_id_from=0, bus_id_to=0, cost_fixed_power_USDperkW=0.0, max_flow_MW=nothing)
+       return Line(id, name, from_bus, to_bus, cap_existing_power_MW, cost_fixed_power_USDperkW, r_pu, x_pu, g_pu, b_pu, angle_max_deg, angle_min_deg, expand_capacity, bus_id_from, bus_id_to, max_flow_MW)
 end
 
 """
@@ -106,6 +107,30 @@ function load_data(inputs_dir:: String, S, T)
         # Find ids of from_bus and to_bus from line instance
         l.bus_id_from = findfirst(n -> n.name == l.from_bus, N)
         l.bus_id_to = findfirst(n -> n.name == l.to_bus, N)
+    end
+
+    for l in L
+        # Exit if the bus has not constraint on max power flow
+        if l.max_flow_MW !== nothing
+            continue
+        end
+        
+        # Otherwise, we deduce max power flow based on the lines
+        # the current bus is connected to.
+        l.max_flow_MW = 0.0
+        connected_lines = [line for line in L if (l.name in [line.from_bus, line.to_bus])]
+
+        for line in connected_lines
+            # There is no constraint on max power flow on the line,
+            # thus the bus should also inherit no constraint (and we can exit).
+            if (line.cap_existing_power_MW === nothing)
+                l.max_flow_MW = nothing
+                continue
+            # Otherwise
+            else
+                l.max_flow_MW += line.cap_existing_power_MW
+            end
+        end
     end
 
     # Load load data
@@ -227,7 +252,7 @@ function get_maxFlow(N:: Vector{Bus}, L:: Vector{Line}):: Vector{Float64}
     return maxFlow
 end
 
-function stochastic_capex_model!(sys, mod:: Model)
+function stochastic_capex_model!(sys, mod:: Model, model_settings:: Dict)
 
     # Extract system data
     N = @views sys.N
@@ -246,7 +271,6 @@ function stochastic_capex_model!(sys, mod:: Model)
 
     # Define bus angle variables
     @variable(mod, vTHETA[N, S, T])
-    @variable(mod, vCAPL[L] ≥ 0)
 
     # Fix bus angle of slack bus
     fix.(vTHETA[slack_bus, S, T], 0)
@@ -261,23 +285,45 @@ function stochastic_capex_model!(sys, mod:: Model)
     @expression(mod, eFlowAtBus[n ∈ N, s ∈ S, t ∈ T], 
                     100 * sum(B[n.id, m.id] * (vTHETA[n, s, t] - vTHETA[m, s, t]) for m in N_at_bus[n.id]))
 
-    for l in L
-        if l.expand_capacity == false
-            fix(vCAPL[l], 0.0; force=true)
-        end
-    end
+    if model_settings["consider_line_capacity"] == true
 
-    @constraint(mod, cMaxFlowPerLine[l ∈ L, s ∈ S, t ∈ T; (l.cap_existing_power_MW>0) || (l.expand_capacity==true)],
+        L_expandable = [l for l in L if (l.expand_capacity == true && l.cap_existing_power_MW !== nothing)]
+        L_nonexpandable = [l for l in L if (l.expand_capacity == false && l.cap_existing_power_MW !== nothing)]
+
+        @variable(mod, vCAPL[L_expandable] ≥ 0)
+
+        @constraint(mod, cMaxFlowPerLine[l ∈ L_expandable, s ∈ S, t ∈ T],
                 100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) ≤ +l.cap_existing_power_MW + vCAPL[l] )
 
-    @constraint(mod, cMinFlowPerLine[l ∈ L, s ∈ S, t ∈ T; (l.cap_existing_power_MW>0) || (l.expand_capacity==true)],
+        @constraint(mod, cMinFlowPerLine[l ∈ L_expandable, s ∈ S, t ∈ T],
             100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) >= -(l.cap_existing_power_MW + vCAPL[l]) )
 
-    @constraint(mod, cMaxDiffAngle[l ∈ L, s ∈ S, t ∈ T; (l.angle_max_deg<360)],
-                           (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t])  ≤ l.angle_max_deg * pi/180)
+        @constraint(mod, cFlowPerNonExpLine[l ∈ L_nonexpandable, s ∈ S, t ∈ T],
+            -l.cap_existing_power_MW ≤ 100 * l.x_pu/(l.x_pu^2 + l.r_pu^2) *  (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) ≤ +l.cap_existing_power_MW )
 
-    @constraint(mod, cMinDiffAngle[l ∈ L, s ∈ S, t ∈ T; l.angle_min_deg>-360],
-                            l.angle_min_deg * pi/180 ≤ (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t]) )
+        @expression(mod, eLineCostPerPeriod,
+                     sum(l.cost_fixed_power_USDperkW * vCAPL[l] * 1000 for l in L_expandable))
+        
+        eCostPerPeriod =  @views mod[:eCostPerPeriod]
+        unregister(mod, :eCostPerPeriod)
+        @expression(mod, eCostPerPeriod, eCostPerPeriod + eLineCostPerPeriod)
+
+    end
+
+    if model_settings["consider_bus_max_flow"] == true
+
+        buses_with_max_flow = [n for n in N if (n.max_flow_MW  !== nothing) ]
+
+        @constraint(mod, cFlowPerBus[n ∈ buses_with_max_flow, s ∈ S, t ∈ T],
+                           - maxFlow[n.id] ≤ eFlowAtBus[n, s, t] ≤ maxFlow[n.id])
+    end
+
+    if model_settings["consider_angle_limits"] == true
+        lines_with_angle_limits = [l for l in L if ((l.angle_min_deg > -360) && (l.angle_max_deg < 360))]
+       
+        @constraint(mod, cDiffAngle[l ∈ lines_with_angle_limits, s ∈ S, t ∈ T],
+                           l.angle_min_deg * pi/180 ≤ (vTHETA[N[l.bus_id_from], s, t] - vTHETA[N[l.bus_id_to], s, t])  ≤ l.angle_max_deg * pi/180)
+    end
 
     function l_MW(n, s, t)
         idx = findfirst(l -> l.bus_id == n.id && l.scenario_id == s.id && l.timepoint_id == t.id, load)
@@ -302,7 +348,13 @@ function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     lines_df = DataFrame(L) #as dataframe
 
     # Export line capacities
-    to_df(mod[:vCAPL], [:line, :capacity_MW]; struct_fields=[:name], csv_dir = joinpath(outputs_dir,"line_built_capacity.csv"))
+    if haskey(mod, :vCAPL)
+        to_df(mod[:vCAPL], [:line, :capacity_MW]; struct_fields=[:name], csv_dir = joinpath(outputs_dir,"line_built_capacity.csv"))
+        
+        costs = DataFrame( component = ["CostPerPeriod_USD"],
+                                cost = [ value(mod[:eLineCostPerPeriod]) ])
+        CSV.write(joinpath(outputs_dir, "line_costs_summary.csv"), costs)
+    end
 
     # Dataframe of bus angle. Columns: bus, scenario, timepoint, rad
     angle_df = to_df(mod[:vTHETA], [:bus, :scenario, :timepoint, :rad]; struct_fields=[:name, :name, :name])

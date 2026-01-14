@@ -67,7 +67,7 @@ function load_data(inputs_dir::String)
     return E
 end
 
-function stochastic_capex_model!(sys, mod:: Model)
+function stochastic_capex_model!(sys, mod:: Model, model_settings::Dict)
 
     N = @views sys.N
     T = @views sys.T
@@ -82,14 +82,17 @@ function stochastic_capex_model!(sys, mod:: Model)
     # vDISCHA: power discharged from the storage system (MW)
     # vSOC: state of charge of the storage system (MWh)
     # vPCAP: power capacity of the storage system (MW)
-    # vECAP: energy capacity of the storage system (MWh)
-    @variables(mod, begin
-            vDISCHA[E, S, T] ≥ 0
-            vCHARGE[E, S, T] ≥ 0       
-            vSOC[E, S, T] ≥ 0
-            vPCAP[E, S] ≥ 0  
-            vECAP[E, S] ≥ 0  
-    end)
+    # vECAP: energy capacity of the storage system (MWh)    
+    @variable(mod, vSOC[E, S, T] ≥ 0)
+    @variable(mod, vPCAP[E, S] ≥ 0)  
+    @variable(mod, vECAP[E, S] ≥ 0)  
+
+    if model_settings["consider_single_storage_injection"] == true
+            @variable(mod, vDISCHA[E, S, T])
+    else
+            @variable(mod, vDISCHA[E, S, T] ≥ 0)
+            @variable(mod, vCHARGE[E, S, T] ≥ 0)       
+    end
 
     for e in E
         if e.expand_capacity == false
@@ -103,12 +106,21 @@ function stochastic_capex_model!(sys, mod:: Model)
     @constraint(mod, cMaxPowerCapStor[e ∈ E, s ∈ S; e.expand_capacity == true], 
                         vPCAP[e, s] ≤ e.cap_max_power_MW - e.cap_existing_power_MW)
 
-    # Define constraints for energy storage systems
-    @constraint(mod, cMaxCharge[e ∈ E, s ∈ S, t ∈ T; e.expand_capacity == true], 
+
+    
+    if model_settings["consider_single_storage_injection"] == true
+        @constraint(mod, cMaxCharge[e ∈ E, s ∈ S, t ∈ T], 
+                                          vDISCHA[e, s, t] >= - (vPCAP[e, s] + e.cap_existing_power_MW))
+        @constraint(mod, cMaxDischa[e ∈ E, s ∈ S, t ∈ T], 
+                                          vDISCHA[e, s, t] <= vPCAP[e, s] + e.cap_existing_power_MW)
+    else
+        # Define constraints for energy storage systems
+        @constraint(mod, cMaxCharge[e ∈ E, s ∈ S, t ∈ T; e.expand_capacity == true], 
                         vCHARGE[e, s, t] ≤ vPCAP[e, s] + e.cap_existing_power_MW)
     
-    @constraint(mod, cMaxDischa[e ∈ E, s ∈ S, t ∈ T; e.expand_capacity == true], 
+        @constraint(mod, cMaxDischa[e ∈ E, s ∈ S, t ∈ T; e.expand_capacity == true], 
                         vDISCHA[e, s, t] ≤ vPCAP[e, s] + e.cap_existing_power_MW)
+    end
     
     E_fixduration_expandable = filter(e -> ((e.duration_hr > 0)  && (e.expand_capacity == true)), E)
 
@@ -122,25 +134,37 @@ function stochastic_capex_model!(sys, mod:: Model)
 
     # SOC in the next time is a function of SOC in the previous time
     # with circular wrapping for the first and last timepoints within a timeseries
-    @constraint(mod, cStateOfCharge[e ∈ E, s ∈ S, t ∈ T],
+    if model_settings["consider_single_storage_injection"] == true
+        @constraint(mod, cStateOfCharge_SingleInjection[e ∈ E, s ∈ S, t ∈ T],
+                        vSOC[e, s, t] == vSOC[e, s, T[t.prev_timepoint_id]] -
+                                        t.duration_hr*(vDISCHA[e, s, t]) )
+        # Power generation by bus
+        @expression(mod, eNetDischargeAtBus[n ∈ N, s ∈ S, t ∈ T], 
+                    sum(vDISCHA[e, s, t] for e ∈ E_AT_BUS[n.id]) )
+
+        # Storage cost per timepoint
+        @expression(mod, eStorCostPerTp[t ∈ T], 0.0)  # No variable cost in single injection model
+
+    else
+        @constraint(mod, cStateOfCharge[e ∈ E, s ∈ S, t ∈ T],
                         vSOC[e, s, t] == vSOC[e, s, T[t.prev_timepoint_id]] +
                                         t.duration_hr*(vCHARGE[e, s, t]*e.efficiency_charge 
                                                         - vDISCHA[e, s, t]*1/e.efficiency_discharge) )
-
-    # Power generation by bus
-    @expression(mod, eNetDischargeAtBus[n ∈ N, s ∈ S, t ∈ T], 
+        # Power generation by bus
+        @expression(mod, eNetDischargeAtBus[n ∈ N, s ∈ S, t ∈ T], 
                     - sum(vCHARGE[e, s, t] for e ∈ E_AT_BUS[n.id]) 
                     + sum(vDISCHA[e, s, t] for e ∈ E_AT_BUS[n.id]) )
 
-    # Storage cost per timepoint
-    @expression(mod, eStorCostPerTp[t ∈ T],
+        # Storage cost per timepoint
+        @expression(mod, eStorCostPerTp[t ∈ T],
                      1/length(S)*(sum(s.probability * e.cost_variable_USDperMWh * (vCHARGE[e, s, t] + vDISCHA[e, s, t]) for e ∈ E, s ∈ S) ) )
+    
+    end
     
     eCostPerTp =  @views mod[:eCostPerTp]
     unregister(mod, :eCostPerTp)
     @expression(mod, eCostPerTp[t ∈ T], eCostPerTp[t] + eStorCostPerTp[t])
-
-                     
+                 
     # Storage cost per period
 	@expression(mod, eStorCostPerPeriod,
                     1/length(S)*sum( s.probability * (e.cost_fixed_power_USDperkW * vPCAP[e, s] * 1000 
@@ -159,15 +183,16 @@ end
 function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
 
     # Print vCHARGE AND vDISCHARGE 
-    df1 = to_df(mod[:vCHARGE], [:storage, :scenario, :timepoint, :charge_MW]; struct_fields = [:name, :name, :name])
-
-    df2 = to_df(mod[:vDISCHA], [:storage, :scenario, :timepoint, :discharge_MW]; struct_fields = [:name, :name, :name])
+    df1 = to_df(mod[:vDISCHA], [:storage, :scenario, :timepoint, :discharge_MW]; struct_fields = [:name, :name, :name])
     
+    if haskey(mod, :vCHARGE)
+        df2 = to_df(mod[:vCHARGE], [:storage, :scenario, :timepoint, :charge_MW]; struct_fields = [:name, :name, :name])
+        df1 = outerjoin(df1, df2, on=[:storage, :scenario, :timepoint])
+    end
+   
     df3 = to_df(mod[:vSOC], [:storage, :scenario, :timepoint, :state_of_charge_MWh]; struct_fields = [:name, :name, :name])
 
-    df_mix1 = outerjoin(df1, df2, on=[:storage, :scenario, :timepoint])
-
-    df_mix1 = outerjoin(df_mix1, df3, on=[:storage, :scenario, :timepoint])
+    df_mix1 = outerjoin(df1, df3, on=[:storage, :scenario, :timepoint])
 
     CSV.write(joinpath(outputs_dir, "storage_dispatch.csv"), df_mix1)
     println("   - storage_dispatch.csv printed.")

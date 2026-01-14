@@ -127,11 +127,11 @@ function solve_stochastic_capex_model(sys, model_settings, main_dir, solver, sol
     println(" └ Completed [$(round(tep, digits = 3)) seconds].")
 
     println(" > Storage vars and constraints ... ")
-    tep = @elapsed Storage.stochastic_capex_model!(sys, mod)
+    tep = @elapsed Storage.stochastic_capex_model!(sys, mod, model_settings)
     println(" └ Completed [$(round(tep, digits = 3)) seconds].")
 
     println(" > Transmission vars and constraints ... ")
-    tep = @elapsed Transmission.stochastic_capex_model!(sys, mod)
+    tep = @elapsed Transmission.stochastic_capex_model!(sys, mod, model_settings)
     println(" └ Completed [$(round(tep, digits = 3)) seconds].")
 
     println(" > Policy vars and constraints ... ")
@@ -217,8 +217,19 @@ function run_stocapex(; main_dir = pwd(),
                              solver = Mosek.Optimizer,
                              solver_settings = Dict(),
                              print_model = false, 
-                             model_settings = Dict("gen_costs" => "linear", "consider_shedding" => false))
+                             model_settings = nothing)
     
+    if isnothing(model_settings)
+        model_settings = Dict(
+                "gen_costs" => "quadratic",
+                "consider_shedding" => false,
+                "consider_single_storage_injection" => false,
+                "consider_line_capacity" => true,
+                "consider_bus_max_flow" => false,
+                "consider_angle_limits" => true,
+                "policies" => []
+        )
+    end
     start_time = time()
     sys = init_system(main_dir)
     mod = solve_stochastic_capex_model(sys, model_settings, main_dir, solver, solver_settings, print_model)

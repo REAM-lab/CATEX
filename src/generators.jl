@@ -174,10 +174,21 @@ function stochastic_capex_model!(sys, mod:: Model,  model_settings:: Dict)
     elseif model_settings["gen_costs"] == "linear"
     @expression(mod, eGenCostPerTp[t ∈ T],
                         sum(g.cost_variable_USDperMWh * vGEN[g, t] for g ∈ GN) + 
-                        1/length(S) * sum(s.probability * g.cost_variable_USDperMWh * vGENV[g, s, t] for g ∈ GV, s ∈ S) + 
-                        (model_settings["consider_shedding"] ? sum(5000 * vSHED[n, s, t] for n ∈ N, s ∈ S) : 0) )
+                        1/length(S) * sum(s.probability * g.cost_variable_USDperMWh * vGENV[g, s, t] for g ∈ GV, s ∈ S))
     end
     
+    if model_settings["consider_shedding"] == true
+        @expression(mod, eShedCostPerTp[t ∈ T],
+                            1/length(S) * sum(s.probability * 5000 * vSHED[n, s, t] for n ∈ N, s ∈ S)) 
+        @expression(mod, eShedTotalCost,
+                                sum(eShedCostPerTp[t] * t.weight for t ∈ T))
+
+        eCostPerTp =  @views mod[:eCostPerTp]
+        unregister(mod, :eCostPerTp)
+        @expression(mod, eCostPerTp[t ∈ T], eCostPerTp[t] + eShedCostPerTp[t])
+
+    end
+        
     eCostPerTp =  @views mod[:eCostPerTp]
     unregister(mod, :eCostPerTp)
     @expression(mod, eCostPerTp[t ∈ T], eCostPerTp[t] + eGenCostPerTp[t])
@@ -210,8 +221,13 @@ function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     # Print vCAPV variable solution
     to_df(mod[:vCAPV], [:generator, :scenario, :GenCapacity]; csv_dir = joinpath(outputs_dir,"variable_generator_capacity.csv"), struct_fields=[:name, :name, :name])
 
+    # Print shedding if applicable
     if haskey(mod, :vSHED)
-        to_df(mod[:vSHED], [:bus, :scenario, :timepoint, :LoadShedding_MW]; csv_dir = joinpath(outputs_dir,"load_shedding.csv"), struct_fields=[:name, :name, :name])
+        to_df(mod[:vSHED], [:bus, :scenario, :timepoint, :load_shedding_MW]; csv_dir = joinpath(outputs_dir,"load_shedding.csv"), struct_fields=[:name, :name, :name])
+    
+        costs = DataFrame(component  = ["TotalCost_USD"],
+                              cost  =  [value(mod[:eShedTotalCost])])
+        CSV.write(joinpath(outputs_dir, "load_shedding_costs_summary.csv"), costs)
     end
 
     # Print cost expressions
