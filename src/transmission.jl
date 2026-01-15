@@ -23,10 +23,15 @@ Bus represents a bus or node in the power system.
 - slack: boolean (true or false) indicating if the bus is a slack bus. 
          At least there must be one slack bus in the system.
 """
-struct Bus
+mutable struct Bus
     id:: Int64
     name:: String
     bus_type:: String
+    max_flow_MW:: Union{Float64, Nothing}
+end
+
+function Bus(id, name, bus_type; max_flow_MW=nothing)
+    return Bus(id, name, bus_type, max_flow_MW)
 end
 
 """
@@ -109,26 +114,26 @@ function load_data(inputs_dir:: String, S, T)
         l.bus_id_to = findfirst(n -> n.name == l.to_bus, N)
     end
 
-    for l in L
+    for n in N
         # Exit if the bus has not constraint on max power flow
-        if l.max_flow_MW !== nothing
+        if n.max_flow_MW !== nothing
             continue
         end
         
         # Otherwise, we deduce max power flow based on the lines
         # the current bus is connected to.
-        l.max_flow_MW = 0.0
-        connected_lines = [line for line in L if (l.name in [line.from_bus, line.to_bus])]
+        n.max_flow_MW = 0.0
+        connected_lines = [line for line in L if (n.name in [line.from_bus, line.to_bus])]
 
         for line in connected_lines
             # There is no constraint on max power flow on the line,
             # thus the bus should also inherit no constraint (and we can exit).
             if (line.cap_existing_power_MW === nothing)
-                l.max_flow_MW = nothing
+                n.max_flow_MW = nothing
                 continue
             # Otherwise
             else
-                l.max_flow_MW += line.cap_existing_power_MW
+                n.max_flow_MW += line.cap_existing_power_MW
             end
         end
     end
@@ -261,7 +266,7 @@ function stochastic_capex_model!(sys, mod:: Model, model_settings:: Dict)
     T = @views sys.T
     load = @views sys.load
 
-    # Build admittance matrix and maxFlow
+    # Build admittance matrix
     Y = build_admittance_matrix(N, L)
     B = imag(Y) # take susceptance matrix
 
@@ -287,8 +292,8 @@ function stochastic_capex_model!(sys, mod:: Model, model_settings:: Dict)
 
     if model_settings["consider_line_capacity"] == true
 
-        L_expandable = [l for l in L if (l.expand_capacity == true && l.cap_existing_power_MW !== nothing)]
-        L_nonexpandable = [l for l in L if (l.expand_capacity == false && l.cap_existing_power_MW !== nothing)]
+        L_expandable = [l for l in L if ((l.expand_capacity == true) && (l.cap_existing_power_MW !== nothing))]
+        L_nonexpandable = [l for l in L if ((l.expand_capacity == false) && (l.cap_existing_power_MW !== nothing))]
 
         @variable(mod, vCAPL[L_expandable] ≥ 0)
 
@@ -315,7 +320,7 @@ function stochastic_capex_model!(sys, mod:: Model, model_settings:: Dict)
         buses_with_max_flow = [n for n in N if (n.max_flow_MW  !== nothing) ]
 
         @constraint(mod, cFlowPerBus[n ∈ buses_with_max_flow, s ∈ S, t ∈ T],
-                           - maxFlow[n.id] ≤ eFlowAtBus[n, s, t] ≤ maxFlow[n.id])
+                           - n.max_flow_MW ≤ eFlowAtBus[n, s, t] ≤ n.max_flow_MW)
     end
 
     if model_settings["consider_angle_limits"] == true
@@ -376,9 +381,9 @@ function toCSV_stochastic_capex(sys, mod:: Model, outputs_dir:: String)
     df.bus_to_angle = df.bus_to_angle * 180/pi # transform to deg
     select!(df, Not(:y_pu, :r_pu, :x_pu, :g_pu, :b_pu))
     
-    filename = "line_flows.csv"
-    println("   - $filename printed.")
-    CSV.write(joinpath(outputs_dir, filename), df)
+    #filename = "line_flows.csv"
+    #CSV.write(joinpath(outputs_dir, filename), df)
+    #println("   - $filename printed.")
 end
    
 end # module Transmission

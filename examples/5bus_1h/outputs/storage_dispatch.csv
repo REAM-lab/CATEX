@@ -1,2 +1,2 @@
-storage,scenario,timepoint,charge_MW,discharge_MW,state_of_charge_MWh
-cats_1,sc1,1,8.876384442935836e-8,7.512971792500893e-8,0.0
+storage,scenario,timepoint,discharge_MW,charge_MW,state_of_charge_MWh
+cats_1,sc1,1,9.118132383299176e-8,1.0772840717508477e-7,0.0
